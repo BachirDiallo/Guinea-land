@@ -70,6 +70,21 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
   - Share land listings via WhatsApp
   - Share completed transactions via WhatsApp
   - Pre-filled French message templates
+- ✅ **Map Tile Caching for Offline Use**
+  - Separate cache store for map tiles (`guinea-land-hub-maps-v1`)
+  - Stale-while-revalidate caching strategy
+  - LRU eviction when cache reaches 500 tiles
+  - Placeholder SVG tiles for uncached areas when offline
+  - Caches tiles from api.mapbox.com and tiles.mapbox.com
+- ✅ **Mobile Map Optimization**
+  - Larger touch targets for markers (40px on mobile)
+  - Navigation controls positioned for thumb reach (bottom-right on mobile)
+  - Geolocation control for user location
+  - Scale control for reference
+  - Map takes 60vh on mobile for better visibility
+  - Compact land cards with horizontal layout
+  - Offline indicator banner on map
+  - Touch-optimized interactions (no rotate on mobile)
 
 ## Test Credentials
 - **Admin**: admin@guinealand.com / admin123
