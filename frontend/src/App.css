@@ -1,34 +1,71 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Guinea Land Hub - App Styles */
+
+/* Remove default app center alignment */
+.App {
+    text-align: left;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
+/* Ensure proper min height */
+.App {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
 }
 
-.App-link {
-    color: #61dafb;
+/* Map container styles */
+.mapboxgl-ctrl-attrib {
+    font-size: 10px !important;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.mapboxgl-ctrl-logo {
+    display: none !important;
+}
+
+/* Custom selection color */
+::selection {
+    background-color: hsl(18 71% 51% / 0.3);
+    color: inherit;
+}
+
+/* Focus visible styles */
+:focus-visible {
+    outline: 2px solid hsl(150 53% 16%);
+    outline-offset: 2px;
+}
+
+/* Line clamp utilities */
+.line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Hide scrollbar for webkit browsers while allowing scroll */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
