@@ -281,6 +281,104 @@ class GuineaLandHubTester:
         success, data = self.run_test("Land Verification", "POST", f"admin/lands/{land_id}/verify", 200, verify_data)
         return success
 
+    def test_transaction_creation(self, land_id, buyer_id):
+        """Test transaction creation and email notification trigger"""
+        if not self.token or not land_id or not buyer_id:
+            self.log_test("Transaction Creation", False, "Missing required parameters")
+            return False, None
+            
+        transaction_data = {
+            "land_id": land_id,
+            "buyer_id": buyer_id,
+            "price": 75000.0,
+            "notes": "Test transaction for email notification testing"
+        }
+        
+        success, data = self.run_test("Create Transaction", "POST", "transactions", 200, transaction_data)
+        if success and 'transaction_id' in data:
+            self.log_test("Transaction Creation Validation", True, f"Transaction ID: {data['transaction_id']}")
+            return True, data['transaction_id']
+        return False, None
+
+    def test_transaction_pdf_download(self, transaction_id):
+        """Test PDF generation for transaction"""
+        if not self.token or not transaction_id:
+            self.log_test("Transaction PDF Download", False, "No token or transaction_id available")
+            return False
+            
+        url = f"{self.base_url}/transactions/{transaction_id}/pdf"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            success = response.status_code == 200
+            
+            if success:
+                # Check if response is actually a PDF
+                content_type = response.headers.get('content-type', '')
+                if 'application/pdf' in content_type:
+                    self.log_test("Transaction PDF Download", True, f"PDF downloaded successfully ({len(response.content)} bytes)")
+                    return True
+                else:
+                    self.log_test("Transaction PDF Download", False, f"Wrong content type: {content_type}")
+                    return False
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Transaction PDF Download", False, f"Status {response.status_code}: {error_data}")
+                except:
+                    self.log_test("Transaction PDF Download", False, f"Status {response.status_code}: {response.text[:200]}")
+                return False
+                
+        except Exception as e:
+            self.log_test("Transaction PDF Download", False, f"Error: {str(e)}")
+            return False
+
+    def test_specific_transaction_pdf(self, transaction_id="txn_d90d21be93ab"):
+        """Test PDF download for specific transaction ID provided in requirements"""
+        if not self.token:
+            self.log_test("Specific Transaction PDF", False, "No token available")
+            return False
+            
+        url = f"{self.base_url}/transactions/{transaction_id}/pdf"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            success = response.status_code == 200
+            
+            if success:
+                content_type = response.headers.get('content-type', '')
+                if 'application/pdf' in content_type:
+                    self.log_test("Specific Transaction PDF", True, f"PDF for {transaction_id} downloaded successfully")
+                    return True
+                else:
+                    self.log_test("Specific Transaction PDF", False, f"Wrong content type: {content_type}")
+                    return False
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Specific Transaction PDF", False, f"Status {response.status_code}: {error_data}")
+                except:
+                    self.log_test("Specific Transaction PDF", False, f"Status {response.status_code}: {response.text[:200]}")
+                return False
+                
+        except Exception as e:
+            self.log_test("Specific Transaction PDF", False, f"Error: {str(e)}")
+            return False
+
+    def test_transactions_endpoint(self):
+        """Test transactions endpoint"""
+        if not self.token:
+            self.log_test("Get Transactions", False, "No token available")
+            return False
+            
+        success, data = self.run_test("Get Transactions", "GET", "transactions", 200)
+        if success and isinstance(data, list):
+            self.log_test("Transactions Data Validation", True, f"Found {len(data)} transactions")
+            return True, data
+        return False, []
+
     def test_protected_endpoints_without_auth(self):
         """Test that protected endpoints require authentication"""
         # Temporarily remove token
@@ -323,8 +421,8 @@ class GuineaLandHubTester:
                     print(f"- {result['test']}: {result['details']}")
 
 def main():
-    print("🧪 Starting Guinea Land Hub API Tests")
-    print("="*50)
+    print("🧪 Starting Guinea Land Hub API Tests - Email, PDF & Mobile Features")
+    print("="*70)
     
     tester = GuineaLandHubTester()
     
@@ -354,22 +452,42 @@ def main():
         land_success, land_id = tester.test_create_land()
         if land_success and land_id:
             tester.test_land_verification(land_id)
+        
+        # Test transactions and PDF generation
+        print("\n📄 Testing Transaction & PDF Features...")
+        transactions_success, transactions_data = tester.test_transactions_endpoint()
+        
+        # Test specific transaction PDF (from requirements)
+        tester.test_specific_transaction_pdf("txn_d90d21be93ab")
+        
+        # Test transaction creation with email notification
+        print("\n📧 Testing Transaction Creation & Email Notifications...")
+        reg_success, user_data = tester.test_user_registration()
+        
+        if reg_success and land_success:
+            # Create transaction to test email notification
+            txn_success, txn_id = tester.test_transaction_creation(land_id, tester.user_id)
+            if txn_success and txn_id:
+                # Test PDF download for the new transaction
+                tester.test_transaction_pdf_download(txn_id)
+        
     else:
         print("❌ Admin login failed, skipping admin tests")
     
     # Test regular user authentication
     print("\n🔐 Testing Regular User Authentication...")
-    reg_success, user_data = tester.test_user_registration()
-    
-    if reg_success:
-        login_success = tester.test_user_login(user_data['email'], user_data['password'])
+    if not hasattr(tester, 'user_id') or not tester.user_id:
+        reg_success, user_data = tester.test_user_registration()
         
-        if login_success:
-            tester.test_get_current_user()
+        if reg_success:
+            login_success = tester.test_user_login(user_data['email'], user_data['password'])
+            
+            if login_success:
+                tester.test_get_current_user()
+            else:
+                print("❌ Regular user login failed")
         else:
-            print("❌ Regular user login failed")
-    else:
-        print("❌ Registration failed")
+            print("❌ Registration failed")
     
     # Test auth protection
     print("\n🛡️ Testing Auth Protection...")

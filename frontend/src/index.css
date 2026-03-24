@@ -218,3 +218,149 @@ code {
         display: contents !important;
     }
 }
+
+/* ==================== MOBILE OPTIMIZATIONS ==================== */
+
+/* Touch-friendly tap targets */
+@media (max-width: 768px) {
+    button, a, [role="button"] {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    /* Larger input fields on mobile */
+    input, select, textarea {
+        font-size: 16px !important; /* Prevents iOS zoom on focus */
+    }
+    
+    /* Reduce padding on mobile */
+    .max-w-7xl {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    
+    /* Stack cards on mobile */
+    .grid-cols-2 {
+        grid-template-columns: 1fr;
+    }
+    
+    /* Hide grain overlay on mobile for performance */
+    .grain-overlay {
+        display: none;
+    }
+    
+    /* Smaller shadows on mobile */
+    .shadow-brutal-sm {
+        box-shadow: 1px 1px 0px 0px rgba(19, 62, 38, 1);
+    }
+    
+    .shadow-brutal-md {
+        box-shadow: 2px 2px 0px 0px rgba(19, 62, 38, 1);
+    }
+    
+    .shadow-brutal-lg {
+        box-shadow: 4px 4px 0px 0px rgba(19, 62, 38, 1);
+    }
+    
+    /* Disable hover effects on touch devices */
+    .card-hover-lift:hover {
+        transform: none;
+        box-shadow: 2px 2px 0px 0px rgba(19, 62, 38, 1);
+    }
+    
+    .btn-hover-lift:hover {
+        transform: none;
+    }
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+    .safe-area-padding {
+        padding-left: max(1rem, env(safe-area-inset-left));
+        padding-right: max(1rem, env(safe-area-inset-right));
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+}
+
+/* Sticky navigation fix for mobile */
+@media (max-width: 768px) {
+    .sticky {
+        position: -webkit-sticky;
+        position: sticky;
+    }
+}
+
+/* Better mobile scrolling */
+@media (max-width: 768px) {
+    html {
+        scroll-padding-top: 4rem;
+    }
+    
+    /* Momentum scrolling on iOS */
+    .overflow-auto, .overflow-y-auto, .overflow-x-auto {
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* Mobile-specific map styles */
+@media (max-width: 1023px) {
+    .mapboxgl-ctrl-top-right {
+        top: 10px !important;
+        right: 10px !important;
+    }
+    
+    .mapboxgl-popup-content {
+        max-width: 250px !important;
+        padding: 12px !important;
+    }
+    
+    .mapboxgl-popup-content h3 {
+        font-size: 14px;
+    }
+}
+
+/* Responsive text sizes */
+@media (max-width: 640px) {
+    h1 {
+        font-size: 1.75rem !important;
+    }
+    
+    h2 {
+        font-size: 1.5rem !important;
+    }
+    
+    h3 {
+        font-size: 1.125rem !important;
+    }
+}
+
+/* Form field spacing on mobile */
+@media (max-width: 640px) {
+    .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+        margin-top: 1rem;
+    }
+    
+    .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+        margin-top: 1.25rem;
+    }
+}
+
+/* Bottom navigation safe area */
+.bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Print styles for PDF */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    
+    body {
+        background: white !important;
+    }
+    
+    .shadow-brutal-sm, .shadow-brutal-md, .shadow-brutal-lg {
+        box-shadow: none !important;
+    }
+}

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query, Header
 from fastapi.security import HTTPBearer
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -14,6 +15,15 @@ import httpx
 import bcrypt
 import jwt
 import requests
+import asyncio
+import resend
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm, mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -33,6 +43,12 @@ STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "guinea-land-hub"
 storage_key = None
+
+# Email Configuration (Resend)
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 # MIME Types
 MIME_TYPES = {
@@ -56,6 +72,312 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ==================== EMAIL HELPERS ====================
+
+async def send_transaction_email(
+    recipient_email: str,
+    recipient_name: str,
+    transaction_type: str,  # "buyer" or "seller"
+    transaction_data: dict,
+    land_data: dict
+):
+    """Send transaction notification email"""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set - email notifications disabled")
+        return None
+    
+    subject = f"Guinea Land Hub - Confirmation de Transaction #{transaction_data['transaction_id'][-8:]}"
+    
+    if transaction_type == "buyer":
+        intro = f"Félicitations {recipient_name}! Votre achat de terrain a été enregistré avec succès."
+    else:
+        intro = f"Bonjour {recipient_name}, la vente de votre terrain a été enregistrée avec succès."
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {{ font-family: 'IBM Plex Sans', Arial, sans-serif; background-color: #F7F7F5; margin: 0; padding: 20px; }}
+            .container {{ max-width: 600px; margin: 0 auto; background: white; border: 2px solid #133E26; }}
+            .header {{ background-color: #133E26; color: white; padding: 30px; text-align: center; }}
+            .header h1 {{ margin: 0; font-size: 24px; }}
+            .content {{ padding: 30px; }}
+            .intro {{ font-size: 16px; margin-bottom: 20px; }}
+            .details {{ background-color: #F7F7F5; padding: 20px; margin: 20px 0; }}
+            .details h3 {{ margin-top: 0; color: #133E26; border-bottom: 2px solid #D95A2B; padding-bottom: 10px; }}
+            .row {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ddd; }}
+            .label {{ color: #666; }}
+            .value {{ font-weight: bold; }}
+            .price {{ font-size: 24px; color: #D95A2B; text-align: center; margin: 20px 0; }}
+            .footer {{ background-color: #133E26; color: white; padding: 20px; text-align: center; font-size: 12px; }}
+            .cta {{ display: inline-block; background-color: #D95A2B; color: white; padding: 12px 24px; text-decoration: none; margin-top: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>GUINEA LAND HUB</h1>
+                <p>Confirmation de Transaction</p>
+            </div>
+            <div class="content">
+                <p class="intro">{intro}</p>
+                
+                <div class="details">
+                    <h3>Détails du Terrain</h3>
+                    <div class="row"><span class="label">Titre:</span><span class="value">{land_data.get('title', 'N/A')}</span></div>
+                    <div class="row"><span class="label">Localisation:</span><span class="value">{land_data.get('commune', '')}, {land_data.get('region', '')}</span></div>
+                    <div class="row"><span class="label">Surface:</span><span class="value">{land_data.get('size', 0):,.0f} m²</span></div>
+                    <div class="row"><span class="label">Type:</span><span class="value">{land_data.get('land_type', 'N/A')}</span></div>
+                </div>
+                
+                <div class="details">
+                    <h3>Détails de la Transaction</h3>
+                    <div class="row"><span class="label">Référence:</span><span class="value">{transaction_data['transaction_id']}</span></div>
+                    <div class="row"><span class="label">Date:</span><span class="value">{transaction_data['transaction_date'].strftime('%d/%m/%Y') if isinstance(transaction_data['transaction_date'], datetime) else transaction_data['transaction_date']}</span></div>
+                    <div class="row"><span class="label">Acheteur:</span><span class="value">{transaction_data.get('buyer_name', 'N/A')}</span></div>
+                    <div class="row"><span class="label">Vendeur:</span><span class="value">{transaction_data.get('seller_name', 'N/A')}</span></div>
+                </div>
+                
+                <div class="price">
+                    Prix de Vente: {transaction_data['price']:,.0f} GNF
+                </div>
+                
+                <p style="text-align: center;">
+                    <a href="https://guinea-land-hub.preview.emergentagent.com/transactions" class="cta">Voir mes transactions</a>
+                </p>
+                
+                <p style="font-size: 12px; color: #666; margin-top: 30px;">
+                    Ce document constitue une preuve d'enregistrement de transaction sur la plateforme Guinea Land Hub. 
+                    Pour toute question, contactez-nous.
+                </p>
+            </div>
+            <div class="footer">
+                <p>© 2024 Guinea Land Hub - Transactions Foncières en Guinée</p>
+                <p>Conakry, République de Guinée</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [recipient_email],
+        "subject": subject,
+        "html": html_content
+    }
+    
+    try:
+        email_result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Transaction email sent to {recipient_email}, id: {email_result.get('id')}")
+        return email_result
+    except Exception as e:
+        logger.error(f"Failed to send email to {recipient_email}: {e}")
+        return None
+
+
+# ==================== PDF GENERATION HELPERS ====================
+
+def generate_transaction_pdf(transaction_data: dict, land_data: dict, buyer_data: dict, seller_data: dict) -> BytesIO:
+    """Generate PDF document for transaction"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2*cm, bottomMargin=2*cm, leftMargin=2*cm, rightMargin=2*cm)
+    
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#133E26'),
+        alignment=TA_CENTER,
+        spaceAfter=20
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle',
+        parent=styles['Normal'],
+        fontSize=12,
+        textColor=colors.HexColor('#666666'),
+        alignment=TA_CENTER,
+        spaceAfter=30
+    )
+    
+    section_title = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=colors.HexColor('#133E26'),
+        spaceBefore=20,
+        spaceAfter=10
+    )
+    
+    normal_style = ParagraphStyle(
+        'CustomNormal',
+        parent=styles['Normal'],
+        fontSize=10,
+        spaceAfter=6
+    )
+    
+    elements = []
+    
+    # Header
+    elements.append(Paragraph("GUINEA LAND HUB", title_style))
+    elements.append(Paragraph("Certificat de Transaction Foncière", subtitle_style))
+    elements.append(Spacer(1, 20))
+    
+    # Transaction Reference
+    ref_data = [
+        ["Référence de Transaction:", transaction_data['transaction_id']],
+        ["Date d'émission:", datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')],
+    ]
+    ref_table = Table(ref_data, colWidths=[5*cm, 10*cm])
+    ref_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#133E26')),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(ref_table)
+    elements.append(Spacer(1, 30))
+    
+    # Land Details Section
+    elements.append(Paragraph("DÉTAILS DU TERRAIN", section_title))
+    
+    land_info = [
+        ["Titre:", land_data.get('title', 'N/A')],
+        ["Région:", land_data.get('region', 'N/A')],
+        ["Commune:", land_data.get('commune', 'N/A')],
+        ["Adresse:", land_data.get('address', 'N/A')],
+        ["Surface:", f"{land_data.get('size', 0):,.0f} m²"],
+        ["Type:", land_data.get('land_type', 'N/A').capitalize()],
+        ["Coordonnées GPS:", f"{land_data.get('latitude', 'N/A')}, {land_data.get('longitude', 'N/A')}"],
+    ]
+    
+    land_table = Table(land_info, colWidths=[4*cm, 11*cm])
+    land_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F7F7F5')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(land_table)
+    elements.append(Spacer(1, 20))
+    
+    # Parties Section
+    elements.append(Paragraph("PARTIES IMPLIQUÉES", section_title))
+    
+    parties_data = [
+        ["", "VENDEUR", "ACHETEUR"],
+        ["Nom:", seller_data.get('name', 'N/A'), buyer_data.get('name', 'N/A')],
+        ["Email:", seller_data.get('email', 'N/A'), buyer_data.get('email', 'N/A')],
+        ["Téléphone:", seller_data.get('phone', 'N/A') or 'N/A', buyer_data.get('phone', 'N/A') or 'N/A'],
+    ]
+    
+    parties_table = Table(parties_data, colWidths=[3*cm, 6*cm, 6*cm])
+    parties_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#133E26')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F7F7F5')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(parties_table)
+    elements.append(Spacer(1, 20))
+    
+    # Transaction Details Section
+    elements.append(Paragraph("DÉTAILS DE LA TRANSACTION", section_title))
+    
+    txn_date = transaction_data.get('transaction_date')
+    if isinstance(txn_date, str):
+        txn_date_str = txn_date[:10]
+    elif isinstance(txn_date, datetime):
+        txn_date_str = txn_date.strftime('%d/%m/%Y')
+    else:
+        txn_date_str = 'N/A'
+    
+    txn_info = [
+        ["Date de transaction:", txn_date_str],
+        ["Statut:", transaction_data.get('status', 'N/A').upper()],
+        ["Notes:", transaction_data.get('notes', '-') or '-'],
+    ]
+    
+    txn_table = Table(txn_info, colWidths=[4*cm, 11*cm])
+    txn_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F7F7F5')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(txn_table)
+    elements.append(Spacer(1, 30))
+    
+    # Price Section (Highlighted)
+    price_data = [
+        ["PRIX DE VENTE", f"{transaction_data['price']:,.0f} GNF"],
+    ]
+    
+    price_table = Table(price_data, colWidths=[7.5*cm, 7.5*cm])
+    price_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (0, 0), 14),
+        ('FONTSIZE', (1, 0), (1, 0), 18),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#133E26')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+        ('TEXTCOLOR', (1, 0), (1, 0), colors.HexColor('#D95A2B')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 15),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+    ]))
+    elements.append(price_table)
+    elements.append(Spacer(1, 40))
+    
+    # Footer
+    footer_style = ParagraphStyle(
+        'Footer',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.HexColor('#666666'),
+        alignment=TA_CENTER
+    )
+    
+    elements.append(Paragraph(
+        "Ce document est généré par Guinea Land Hub et constitue une preuve d'enregistrement de transaction.<br/>"
+        "Il ne remplace pas les documents officiels requis par la législation guinéenne.<br/><br/>"
+        f"Document généré le {datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M UTC')}<br/>"
+        "Guinea Land Hub - Conakry, République de Guinée",
+        footer_style
+    ))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
 
 
 # ==================== OBJECT STORAGE HELPERS ====================
@@ -697,9 +1019,35 @@ async def create_transaction(transaction: TransactionCreate, request: Request):
         }
     )
     
-    # Get names for response
-    buyer = await db.users.find_one({"user_id": transaction.buyer_id}, {"_id": 0, "name": 1})
-    seller = await db.users.find_one({"user_id": seller_id}, {"_id": 0, "name": 1})
+    # Get full user info for emails and response
+    buyer = await db.users.find_one({"user_id": transaction.buyer_id}, {"_id": 0})
+    seller = await db.users.find_one({"user_id": seller_id}, {"_id": 0})
+    
+    # Prepare transaction data with names for emails
+    transaction_with_names = {
+        **transaction_doc,
+        "buyer_name": buyer["name"] if buyer else "N/A",
+        "seller_name": seller["name"] if seller else "N/A"
+    }
+    
+    # Send email notifications (non-blocking)
+    if buyer and buyer.get("email"):
+        asyncio.create_task(send_transaction_email(
+            recipient_email=buyer["email"],
+            recipient_name=buyer["name"],
+            transaction_type="buyer",
+            transaction_data=transaction_with_names,
+            land_data=land
+        ))
+    
+    if seller and seller.get("email"):
+        asyncio.create_task(send_transaction_email(
+            recipient_email=seller["email"],
+            recipient_name=seller["name"],
+            transaction_type="seller",
+            transaction_data=transaction_with_names,
+            land_data=land
+        ))
     
     return TransactionResponse(
         **transaction_doc,
@@ -771,6 +1119,43 @@ async def get_transaction(transaction_id: str, request: Request):
     transaction["seller_name"] = seller["name"] if seller else None
     
     return TransactionResponse(**transaction)
+
+
+@api_router.get("/transactions/{transaction_id}/pdf")
+async def download_transaction_pdf(transaction_id: str, request: Request):
+    """Download PDF receipt for a transaction"""
+    user = await get_current_user(request)
+    
+    # Get transaction
+    transaction = await db.transactions.find_one({"transaction_id": transaction_id}, {"_id": 0})
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    # Check access
+    if user.get("role") != "admin":
+        if transaction["buyer_id"] != user["user_id"] and transaction["seller_id"] != user["user_id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get related data
+    land = await db.lands.find_one({"land_id": transaction["land_id"]}, {"_id": 0})
+    buyer = await db.users.find_one({"user_id": transaction["buyer_id"]}, {"_id": 0, "password_hash": 0})
+    seller = await db.users.find_one({"user_id": transaction["seller_id"]}, {"_id": 0, "password_hash": 0})
+    
+    if not land or not buyer or not seller:
+        raise HTTPException(status_code=404, detail="Transaction data incomplete")
+    
+    # Generate PDF
+    pdf_buffer = generate_transaction_pdf(transaction, land, buyer, seller)
+    
+    filename = f"transaction_{transaction_id}.pdf"
+    
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
 
 
 # ==================== STATS ROUTES ====================
