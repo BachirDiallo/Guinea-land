@@ -9,6 +9,8 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - **Map**: React Map GL with Mapbox
 - **Auth**: JWT + Emergent Google OAuth
 - **Storage**: Emergent Object Storage for files
+- **Email**: Resend for transaction notifications
+- **PDF**: ReportLab for transaction documents
 - **Language**: Bilingual French (primary) + English
 
 ## User Personas
@@ -27,78 +29,67 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 
 ## What's Been Implemented (March 2024)
 
-### Backend APIs
+### Phase 1 - MVP
 - ✅ User authentication (register, login, Google OAuth)
-- ✅ User management (CRUD operations)
-- ✅ Land management (create, read, update, delete, verify)
+- ✅ Land management (CRUD operations)
 - ✅ Transaction recording
-- ✅ Stats and regions endpoints
-- ✅ Protected routes with JWT/session auth
-- ✅ **NEW: File upload API (Object Storage integration)**
-- ✅ **NEW: Admin dashboard API**
-- ✅ **NEW: Land verification/rejection APIs**
-- ✅ **NEW: Admin user management APIs**
+- ✅ Interactive map with Mapbox
+- ✅ French/English bilingual support
 
-### Frontend Pages
-- ✅ Landing page with hero, stats, features
-- ✅ Login page with email/password and Google OAuth
-- ✅ Registration page with role selection
-- ✅ Map view with split-screen layout (40% list / 60% map)
-- ✅ Listings page with search and filters
-- ✅ Land detail page with photos, map, info
-- ✅ Dashboard for authenticated users
-- ✅ **NEW: Add Land form with file uploads and boundary drawing**
-- ✅ Transactions page
-- ✅ New Transaction form
-- ✅ Profile page
-- ✅ **NEW: Admin Dashboard with verification workflow**
+### Phase 2 - Document & Admin
+- ✅ File upload API (Object Storage)
+- ✅ Admin dashboard with verification workflow
+- ✅ Land boundary drawing tool
 
-### New Features (Phase 2)
-- ✅ Document upload (photos + official documents like actes de vente)
-- ✅ Admin verification workflow (verify/reject lands)
-- ✅ Boundary drawing tool on map
-- ✅ Admin-only navbar link
-- ✅ User role statistics
-
-### Design System
-- Forest Green (#133E26) primary color
-- Terracotta (#D95A2B) accent color
-- Chivo font for headings, IBM Plex Sans for body
-- Swiss Brutalist style with sharp edges
-- Grain texture overlay
+### Phase 3 - Notifications & Mobile
+- ✅ **Email notifications** (Resend integration)
+  - Transaction confirmation emails to buyer & seller
+  - Professional HTML templates in French
+- ✅ **PDF generation** (ReportLab)
+  - Downloadable transaction receipts
+  - Official document format with land/party details
+- ✅ **Mobile optimization**
+  - Touch-friendly tap targets (44px min)
+  - Responsive layouts (cards stack on mobile)
+  - Safe area padding for notched devices
+  - iOS zoom prevention on input focus
+  - Momentum scrolling
 
 ## Test Credentials
 - **Admin**: admin@guinealand.com / admin123
 - **Demo Agent**: demo@guinealand.com (Google OAuth)
 
+## Configuration Required for Production
+
+### Email (Resend)
+- Current: Test key (can only send to owner's email)
+- For production: Verify domain at resend.com/domains
+- Update SENDER_EMAIL to verified domain email
+
 ## Prioritized Backlog
 
-### P0 - Critical (For Production)
-- [x] Document/photo upload functionality ✅
+### P0 - Critical (Completed ✅)
+- [x] Document/photo upload ✅
 - [x] Admin verification workflow ✅
-- [ ] Email notifications for transactions
+- [x] Email notifications ✅
+- [x] PDF generation ✅
+- [x] Mobile optimization ✅
 
-### P1 - High Priority
-- [x] Land boundary drawing tool ✅
-- [x] Admin dashboard ✅
-- [ ] Transaction document generation (PDF)
-- [ ] Mobile app optimization
+### P1 - High Priority (Remaining)
+- [ ] Verify custom domain for email sending
+- [ ] SMS notifications (Twilio - user opted to wait)
+- [ ] Push notifications for mobile
+- [ ] Offline support / PWA
 
 ### P2 - Nice to Have
-- [ ] SMS notifications (Twilio)
 - [ ] Payment integration for premium listings
 - [ ] Advanced search with saved filters
 - [ ] Land comparison feature
-
-## Next Tasks
-1. Add email notifications for new transactions
-2. Generate PDF transaction documents
-3. Optimize mobile experience
-4. Add SMS notifications
+- [ ] WhatsApp integration for Guinea market
 
 ## Tech Stack
-- Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, Object Storage
-- Frontend: React 19, React Router, i18next, React Map GL, Framer Motion
-- UI: Tailwind CSS, Shadcn UI, Phosphor Icons
+- Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, Resend, ReportLab
+- Frontend: React 19, React Router, i18next, React Map GL, Phosphor Icons
+- UI: Tailwind CSS, Shadcn UI
 - Database: MongoDB
 - Storage: Emergent Object Storage
