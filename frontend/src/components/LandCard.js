@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MapPin, Ruler, Tag, CheckCircle } from '@phosphor-icons/react';
 
-export const LandCard = ({ land }) => {
+export const LandCard = ({ land, compact = false }) => {
   const { t } = useTranslation();
 
   const statusColors = {
@@ -24,6 +24,60 @@ export const LandCard = ({ land }) => {
   };
 
   const defaultImage = 'https://images.unsplash.com/photo-1613183919710-2ff7b3bec845?w=800&q=80';
+
+  // Compact mode for mobile map view
+  if (compact) {
+    return (
+      <Link 
+        to={`/lands/${land.land_id}`}
+        className="block bg-card border border-border card-hover-lift overflow-hidden"
+        data-testid={`land-card-${land.land_id}`}
+      >
+        <div className="flex">
+          {/* Thumbnail */}
+          <div className="relative w-24 sm:w-32 h-24 sm:h-28 flex-shrink-0 overflow-hidden">
+            <img
+              src={land.photos?.[0] || defaultImage}
+              alt={land.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute top-1 left-1">
+              <span className={`text-[10px] sm:text-xs font-bold px-1.5 py-0.5 ${statusColors[land.status]}`}>
+                {statusLabels[land.status]}
+              </span>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 p-2 sm:p-3 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-bold text-sm sm:text-base line-clamp-1">{land.title}</h3>
+              {land.verified && (
+                <CheckCircle size={14} weight="fill" className="text-green-600 flex-shrink-0" />
+              )}
+            </div>
+            
+            <div className="flex items-center gap-1 text-muted-foreground text-xs sm:text-sm mt-0.5">
+              <MapPin size={12} weight="fill" />
+              <span className="line-clamp-1">{land.commune}</span>
+            </div>
+
+            <div className="flex items-center justify-between mt-2 sm:mt-3">
+              <div className="flex items-center gap-1 text-xs sm:text-sm">
+                <Ruler size={14} className="text-muted-foreground" />
+                <span>{land.size?.toLocaleString()} m²</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="font-bold text-accent text-xs sm:text-sm">
+                  {land.price?.toLocaleString()} GNF
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Link>
+    );
+  }
 
   return (
     <Link 

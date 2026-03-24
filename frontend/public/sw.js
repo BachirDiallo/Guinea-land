@@ -1,7 +1,8 @@
 // Guinea Land Hub Service Worker
 // Provides offline support and caching for Guinea's connectivity challenges
 
-const CACHE_NAME = 'guinea-land-hub-v1';
+const CACHE_NAME = 'guinea-land-hub-v2';
+const MAP_CACHE_NAME = 'guinea-land-hub-maps-v1';
 const OFFLINE_URL = '/offline.html';
 
 // Assets to cache immediately on install
@@ -20,6 +21,19 @@ const API_CACHE_PATTERNS = [
   '/api/stats',
   '/api/lands',
 ];
+
+// Mapbox tile URL patterns to cache
+const MAPBOX_PATTERNS = [
+  'api.mapbox.com',
+  'tiles.mapbox.com',
+  'a.tiles.mapbox.com',
+  'b.tiles.mapbox.com',
+  'c.tiles.mapbox.com',
+  'd.tiles.mapbox.com',
+];
+
+// Maximum map tiles to cache (prevent storage overflow)
+const MAX_MAP_TILES = 500;
 
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
@@ -40,7 +54,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name !== CACHE_NAME && name !== MAP_CACHE_NAME)
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
             return caches.delete(name);
@@ -61,8 +75,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip cross-origin requests (except Mapbox tiles for offline maps)
-  if (url.origin !== self.location.origin && !url.hostname.includes('mapbox')) {
+  // Handle Mapbox tile requests - cache for offline maps
+  if (isMapboxRequest(url)) {
+    event.respondWith(mapTileCacheStrategy(request));
+    return;
+  }
+
+  // Skip other cross-origin requests
+  if (url.origin !== self.location.origin) {
     return;
   }
 
@@ -92,6 +112,83 @@ self.addEventListener('fetch', (event) => {
   // Default - Network first
   event.respondWith(networkFirstStrategy(request));
 });
+
+// Check if request is for Mapbox tiles
+function isMapboxRequest(url) {
+  return MAPBOX_PATTERNS.some(pattern => url.hostname.includes(pattern));
+}
+
+// Map tile caching strategy - Cache first with LRU eviction
+async function mapTileCacheStrategy(request) {
+  const cache = await caches.open(MAP_CACHE_NAME);
+  
+  // Try cache first
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    console.log('[SW] Map tile from cache:', request.url.substring(0, 80));
+    
+    // Update cache in background (stale-while-revalidate)
+    fetchAndCacheMapTile(request, cache).catch(() => {});
+    
+    return cachedResponse;
+  }
+  
+  // Fetch from network
+  try {
+    return await fetchAndCacheMapTile(request, cache);
+  } catch (error) {
+    console.log('[SW] Map tile fetch failed:', request.url.substring(0, 80));
+    
+    // Return a placeholder tile for offline
+    return new Response(createPlaceholderTile(), {
+      headers: { 'Content-Type': 'image/svg+xml' }
+    });
+  }
+}
+
+// Fetch and cache map tile with LRU eviction
+async function fetchAndCacheMapTile(request, cache) {
+  const networkResponse = await fetch(request);
+  
+  if (networkResponse.ok) {
+    // Clone before caching
+    const responseToCache = networkResponse.clone();
+    
+    // Check cache size and evict old tiles if needed
+    await evictOldMapTiles(cache);
+    
+    // Cache the new tile
+    cache.put(request, responseToCache);
+    console.log('[SW] Map tile cached:', request.url.substring(0, 80));
+  }
+  
+  return networkResponse;
+}
+
+// Evict old map tiles when cache is full (simple LRU)
+async function evictOldMapTiles(cache) {
+  const keys = await cache.keys();
+  
+  if (keys.length >= MAX_MAP_TILES) {
+    // Delete oldest 20% of tiles
+    const toDelete = Math.floor(MAX_MAP_TILES * 0.2);
+    console.log(`[SW] Evicting ${toDelete} old map tiles`);
+    
+    for (let i = 0; i < toDelete && i < keys.length; i++) {
+      await cache.delete(keys[i]);
+    }
+  }
+}
+
+// Create a placeholder SVG tile for offline
+function createPlaceholderTile() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+    <rect fill="#E8E8E8" width="256" height="256"/>
+    <text x="128" y="128" font-family="sans-serif" font-size="12" fill="#999" text-anchor="middle" dominant-baseline="middle">
+      Hors ligne
+    </text>
+  </svg>`;
+}
 
 // Network first strategy - try network, fall back to cache
 async function networkFirstStrategy(request) {
