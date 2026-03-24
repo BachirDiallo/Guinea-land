@@ -8,6 +8,7 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - **Frontend**: React with Tailwind CSS, Shadcn UI
 - **Map**: React Map GL with Mapbox
 - **Auth**: JWT + Emergent Google OAuth
+- **Storage**: Emergent Object Storage for files
 - **Language**: Bilingual French (primary) + English
 
 ## User Personas
@@ -33,6 +34,10 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - ✅ Transaction recording
 - ✅ Stats and regions endpoints
 - ✅ Protected routes with JWT/session auth
+- ✅ **NEW: File upload API (Object Storage integration)**
+- ✅ **NEW: Admin dashboard API**
+- ✅ **NEW: Land verification/rejection APIs**
+- ✅ **NEW: Admin user management APIs**
 
 ### Frontend Pages
 - ✅ Landing page with hero, stats, features
@@ -42,10 +47,18 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - ✅ Listings page with search and filters
 - ✅ Land detail page with photos, map, info
 - ✅ Dashboard for authenticated users
-- ✅ Add Land form with map location picker
+- ✅ **NEW: Add Land form with file uploads and boundary drawing**
 - ✅ Transactions page
 - ✅ New Transaction form
 - ✅ Profile page
+- ✅ **NEW: Admin Dashboard with verification workflow**
+
+### New Features (Phase 2)
+- ✅ Document upload (photos + official documents like actes de vente)
+- ✅ Admin verification workflow (verify/reject lands)
+- ✅ Boundary drawing tool on map
+- ✅ Admin-only navbar link
+- ✅ User role statistics
 
 ### Design System
 - Forest Green (#133E26) primary color
@@ -54,16 +67,20 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - Swiss Brutalist style with sharp edges
 - Grain texture overlay
 
+## Test Credentials
+- **Admin**: admin@guinealand.com / admin123
+- **Demo Agent**: demo@guinealand.com (Google OAuth)
+
 ## Prioritized Backlog
 
 ### P0 - Critical (For Production)
-- [ ] Add proper Mapbox token (user to provide)
-- [ ] Document/photo upload functionality (Object Storage integration)
+- [x] Document/photo upload functionality ✅
+- [x] Admin verification workflow ✅
 - [ ] Email notifications for transactions
 
 ### P1 - High Priority
-- [ ] Land boundary drawing tool on map
-- [ ] Admin dashboard for land verification
+- [x] Land boundary drawing tool ✅
+- [x] Admin dashboard ✅
 - [ ] Transaction document generation (PDF)
 - [ ] Mobile app optimization
 
@@ -74,14 +91,14 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - [ ] Land comparison feature
 
 ## Next Tasks
-1. Integrate Object Storage for document/photo uploads
-2. Add boundary drawing tool for map
-3. Implement admin verification workflow
-4. Add email notifications for new transactions
-5. Optimize mobile experience
+1. Add email notifications for new transactions
+2. Generate PDF transaction documents
+3. Optimize mobile experience
+4. Add SMS notifications
 
 ## Tech Stack
-- Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt
+- Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, Object Storage
 - Frontend: React 19, React Router, i18next, React Map GL, Framer Motion
 - UI: Tailwind CSS, Shadcn UI, Phosphor Icons
 - Database: MongoDB
+- Storage: Emergent Object Storage
