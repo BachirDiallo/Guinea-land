@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import './i18n';
 import '@/App.css';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
@@ -7,6 +8,8 @@ import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { AuthCallback } from './components/AuthCallback';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { PWAStatus } from './components/PWAStatus';
+import { WhatsAppHelpButton } from './components/WhatsApp';
 
 // Pages
 import Landing from './pages/Landing';
@@ -21,6 +24,32 @@ import Transactions from './pages/Transactions';
 import NewTransaction from './pages/NewTransaction';
 import Profile from './pages/Profile';
 import AdminDashboard from './pages/AdminDashboard';
+
+// Register Service Worker
+const registerServiceWorker = async () => {
+  if ('serviceWorker' in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js', {
+        scope: '/'
+      });
+      
+      console.log('Service Worker registered:', registration.scope);
+      
+      // Check for updates
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        newWorker?.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // New version available
+            console.log('New version available!');
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Service Worker registration failed:', error);
+    }
+  }
+};
 
 const AppRouter = () => {
   const location = useLocation();
@@ -37,6 +66,7 @@ const AppRouter = () => {
   return (
     <>
       {!isAuthPage && <Navbar />}
+      <PWAStatus />
       <main className={!isAuthPage ? 'min-h-[calc(100vh-64px)]' : ''}>
         <Routes>
           {/* Public Routes */}
@@ -81,11 +111,16 @@ const AppRouter = () => {
         </Routes>
       </main>
       {!isAuthPage && <Footer />}
+      {!isAuthPage && <WhatsAppHelpButton supportPhone="621000000" />}
     </>
   );
 };
 
 function App() {
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
   return (
     <div className="App">
       <BrowserRouter>

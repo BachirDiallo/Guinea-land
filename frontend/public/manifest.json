@@ -1,0 +1,43 @@
+{
+  "name": "Guinea Land Hub",
+  "short_name": "GuineaLand",
+  "description": "Plateforme de transactions foncières en Guinée - Land transactions platform for Guinea",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F7F5",
+  "theme_color": "#133E26",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["business", "finance", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Carte des terrains",
+      "short_name": "Carte",
+      "description": "Voir la carte interactive",
+      "url": "/map"
+    },
+    {
+      "name": "Mes transactions",
+      "short_name": "Transactions",
+      "description": "Voir mes transactions",
+      "url": "/transactions"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

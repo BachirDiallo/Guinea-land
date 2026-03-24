@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { LandMap } from '../components/LandMap';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { WhatsAppContactButton, WhatsAppShareButton } from '../components/WhatsApp';
 import { toast } from 'sonner';
 import { 
   MapPin, 
@@ -17,7 +18,8 @@ import {
   Phone,
   FileText,
   Image as ImageIcon,
-  Receipt
+  Receipt,
+  Share
 } from '@phosphor-icons/react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -246,10 +248,13 @@ export default function LandDetail() {
                         {t('land.detail.record_transaction')}
                       </Link>
                     </Button>
-                    <Button variant="outline" className="w-full h-12 gap-2">
-                      <Phone className="w-5 h-5" />
-                      {t('land.detail.contact')}
-                    </Button>
+                    <WhatsAppContactButton
+                      ownerPhone={land.owner_phone}
+                      ownerName={land.owner_name}
+                      landTitle={land.title}
+                      landPrice={land.price}
+                      className="w-full h-12"
+                    />
                   </>
                 ) : (
                   <Button className="w-full h-12 shadow-brutal-sm btn-hover-lift" asChild>
@@ -258,6 +263,17 @@ export default function LandDetail() {
                     </Link>
                   </Button>
                 )}
+                
+                {/* Share Button */}
+                <div className="pt-3 border-t border-border">
+                  <WhatsAppShareButton
+                    landTitle={land.title}
+                    landPrice={land.price}
+                    landLocation={`${land.commune}, ${land.region}`}
+                    landUrl={window.location.href}
+                    className="w-full"
+                  />
+                </div>
               </div>
             )}
           </div>

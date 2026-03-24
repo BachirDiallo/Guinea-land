@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { WhatsAppTransactionShare } from '../components/WhatsApp';
 import { toast } from 'sonner';
 import { 
   Receipt, 
@@ -201,6 +202,14 @@ export default function Transactions() {
                         </>
                       )}
                     </Button>
+                    <WhatsAppTransactionShare
+                      transactionId={txn.transaction_id}
+                      landTitle={txn.land_title}
+                      price={txn.price}
+                      buyerName={txn.buyer_name}
+                      sellerName={txn.seller_name}
+                      className="w-full sm:w-auto"
+                    />
                     <Button variant="ghost" size="sm" asChild className="w-full sm:w-auto">
                       <Link to={`/lands/${txn.land_id}`}>
                         Voir le terrain
