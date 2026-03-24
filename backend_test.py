@@ -177,6 +177,110 @@ class GuineaLandHubTester:
             return True, data['land_id']
         return False, None
 
+    def test_admin_login(self):
+        """Test admin login with provided credentials"""
+        admin_data = {
+            "email": "admin@guinealand.com",
+            "password": "admin123"
+        }
+        
+        success, data = self.run_test("Admin Login", "POST", "auth/login", 200, admin_data)
+        if success and 'token' in data:
+            self.token = data['token']
+            self.log_test("Admin Login Token Validation", True, f"Admin token received")
+            return True
+        return False
+
+    def test_admin_dashboard(self):
+        """Test admin dashboard endpoint"""
+        if not self.token:
+            self.log_test("Admin Dashboard", False, "No token available")
+            return False
+            
+        success, data = self.run_test("Admin Dashboard", "GET", "admin/dashboard", 200)
+        if success and isinstance(data, dict):
+            required_fields = ['total_users', 'total_lands', 'pending_verification', 'verified_lands', 'total_transactions']
+            missing_fields = [f for f in required_fields if f not in data]
+            if not missing_fields:
+                self.log_test("Admin Dashboard Data Validation", True, f"All required fields present")
+                return True
+            else:
+                self.log_test("Admin Dashboard Data Validation", False, f"Missing fields: {missing_fields}")
+                return False
+        return success
+
+    def test_admin_pending_lands(self):
+        """Test admin pending lands endpoint"""
+        if not self.token:
+            self.log_test("Admin Pending Lands", False, "No token available")
+            return False
+            
+        success, data = self.run_test("Admin Pending Lands", "GET", "admin/lands/pending", 200)
+        if success and isinstance(data, list):
+            self.log_test("Admin Pending Lands Data Validation", True, f"Found {len(data)} pending lands")
+            return True
+        return success
+
+    def test_file_upload_endpoint(self):
+        """Test file upload endpoint"""
+        if not self.token:
+            self.log_test("File Upload", False, "No token available")
+            return False
+        
+        # Create a simple test PDF content (minimal PDF structure)
+        test_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n>>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000074 00000 n \n0000000120 00000 n \ntrailer\n<<\n/Size 4\n/Root 1 0 R\n>>\nstartxref\n179\n%%EOF"
+        files = {'file': ('test.pdf', test_content, 'application/pdf')}
+        
+        url = f"{self.base_url}/upload?file_type=document"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        try:
+            response = requests.post(url, files=files, headers=headers, timeout=10)
+            success = response.status_code == 200
+            
+            if success:
+                try:
+                    data = response.json()
+                    if 'file_id' in data and 'url' in data:
+                        self.log_test("File Upload", True, f"File uploaded with ID: {data['file_id']}")
+                        return True, data['file_id']
+                    else:
+                        self.log_test("File Upload", False, "Missing file_id or url in response")
+                        return False, None
+                except:
+                    self.log_test("File Upload", False, "Invalid JSON response")
+                    return False, None
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("File Upload", False, f"Status {response.status_code}: {error_data}")
+                except:
+                    self.log_test("File Upload", False, f"Status {response.status_code}: {response.text[:200]}")
+                return False, None
+                
+        except Exception as e:
+            self.log_test("File Upload", False, f"Error: {str(e)}")
+            return False, None
+
+    def test_file_download(self, file_id):
+        """Test file download endpoint"""
+        if not file_id:
+            self.log_test("File Download", False, "No file_id provided")
+            return False
+            
+        success, _ = self.run_test("File Download", "GET", f"files/{file_id}", 200)
+        return success
+
+    def test_land_verification(self, land_id):
+        """Test land verification endpoint"""
+        if not self.token or not land_id:
+            self.log_test("Land Verification", False, "No token or land_id available")
+            return False
+            
+        verify_data = {"notes": "Test verification"}
+        success, data = self.run_test("Land Verification", "POST", f"admin/lands/{land_id}/verify", 200, verify_data)
+        return success
+
     def test_protected_endpoints_without_auth(self):
         """Test that protected endpoints require authentication"""
         # Temporarily remove token
@@ -187,7 +291,9 @@ class GuineaLandHubTester:
         protected_tests = [
             ("Users List (No Auth)", "GET", "users", 401),
             ("Create Land (No Auth)", "POST", "lands", 401),
-            ("Get Transactions (No Auth)", "GET", "transactions", 401)
+            ("Get Transactions (No Auth)", "GET", "transactions", 401),
+            ("Admin Dashboard (No Auth)", "GET", "admin/dashboard", 401),
+            ("File Upload (No Auth)", "POST", "upload", 401)
         ]
         
         all_passed = True
@@ -228,8 +334,31 @@ def main():
     tester.test_regions_endpoint()
     tester.test_stats_endpoint()
     
-    # Test authentication
-    print("\n🔐 Testing Authentication...")
+    # Test admin authentication
+    print("\n👑 Testing Admin Authentication...")
+    admin_login_success = tester.test_admin_login()
+    
+    if admin_login_success:
+        print("\n🔧 Testing Admin Features...")
+        tester.test_admin_dashboard()
+        tester.test_admin_pending_lands()
+        
+        print("\n📁 Testing File Upload Features...")
+        upload_success, file_id = tester.test_file_upload_endpoint()
+        if upload_success and file_id:
+            tester.test_file_download(file_id)
+        
+        # Test land creation and verification
+        print("\n🏞️ Testing Land Management...")
+        tester.test_lands_endpoint()
+        land_success, land_id = tester.test_create_land()
+        if land_success and land_id:
+            tester.test_land_verification(land_id)
+    else:
+        print("❌ Admin login failed, skipping admin tests")
+    
+    # Test regular user authentication
+    print("\n🔐 Testing Regular User Authentication...")
     reg_success, user_data = tester.test_user_registration()
     
     if reg_success:
@@ -237,19 +366,14 @@ def main():
         
         if login_success:
             tester.test_get_current_user()
-            
-            # Test protected endpoints
-            print("\n🔒 Testing Protected Endpoints...")
-            tester.test_lands_endpoint()
-            tester.test_create_land()
-            
-            # Test auth protection
-            print("\n🛡️ Testing Auth Protection...")
-            tester.test_protected_endpoints_without_auth()
         else:
-            print("❌ Login failed, skipping protected endpoint tests")
+            print("❌ Regular user login failed")
     else:
-        print("❌ Registration failed, skipping auth tests")
+        print("❌ Registration failed")
+    
+    # Test auth protection
+    print("\n🛡️ Testing Auth Protection...")
+    tester.test_protected_endpoints_without_auth()
     
     tester.print_summary()
     

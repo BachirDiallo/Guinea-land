@@ -19,7 +19,8 @@ import {
   SignOut, 
   List,
   Globe,
-  CaretDown
+  CaretDown,
+  ShieldCheck
 } from '@phosphor-icons/react';
 
 export const Navbar = () => {
@@ -45,6 +46,7 @@ export const Navbar = () => {
     { path: '/listings', label: t('nav.listings'), icon: House },
     { path: '/dashboard', label: t('nav.dashboard'), icon: ChartBar },
     { path: '/transactions', label: t('nav.transactions'), icon: Receipt },
+    ...(user.role === 'admin' ? [{ path: '/admin', label: 'Admin', icon: ShieldCheck }] : []),
   ] : [
     { path: '/map', label: t('nav.map'), icon: MapTrifold },
     { path: '/listings', label: t('nav.listings'), icon: House },

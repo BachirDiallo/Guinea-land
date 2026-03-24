@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query, Header
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 import httpx
 import bcrypt
 import jwt
+import requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -26,6 +27,19 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ.get('JWT_SECRET', 'guinea-land-secret-key-2024')
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
+
+# Object Storage Configuration
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "guinea-land-hub"
+storage_key = None
+
+# MIME Types
+MIME_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
+    "json": "application/json", "csv": "text/csv", "txt": "text/plain"
+}
 
 # Create the main app
 app = FastAPI(title="Guinea Land Hub API")
@@ -42,6 +56,52 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ==================== OBJECT STORAGE HELPERS ====================
+
+def init_storage():
+    """Initialize storage - call once at startup"""
+    global storage_key
+    if storage_key:
+        return storage_key
+    if not EMERGENT_KEY:
+        logger.warning("EMERGENT_LLM_KEY not set - file uploads disabled")
+        return None
+    try:
+        resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+        resp.raise_for_status()
+        storage_key = resp.json()["storage_key"]
+        logger.info("Object storage initialized successfully")
+        return storage_key
+    except Exception as e:
+        logger.error(f"Storage init failed: {e}")
+        return None
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    """Upload file to storage"""
+    key = init_storage()
+    if not key:
+        raise HTTPException(status_code=503, detail="Storage not available")
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str) -> tuple:
+    """Download file from storage"""
+    key = init_storage()
+    if not key:
+        raise HTTPException(status_code=503, detail="Storage not available")
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
 # ==================== MODELS ====================
@@ -759,6 +819,290 @@ async def root():
     return {"message": "Guinea Land Hub API", "version": "1.0.0"}
 
 
+# ==================== FILE UPLOAD ROUTES ====================
+
+@api_router.post("/upload")
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    file_type: str = Query(default="photo", description="photo or document")
+):
+    """Upload a photo or document"""
+    user = await get_current_user(request)
+    
+    # Validate file type
+    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
+    allowed_photo_exts = ["jpg", "jpeg", "png", "gif", "webp"]
+    allowed_doc_exts = ["pdf", "jpg", "jpeg", "png"]
+    
+    if file_type == "photo" and ext not in allowed_photo_exts:
+        raise HTTPException(status_code=400, detail=f"Invalid photo format. Allowed: {allowed_photo_exts}")
+    if file_type == "document" and ext not in allowed_doc_exts:
+        raise HTTPException(status_code=400, detail=f"Invalid document format. Allowed: {allowed_doc_exts}")
+    
+    # Read file
+    data = await file.read()
+    
+    # Check file size (max 10MB)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Max 10MB")
+    
+    # Generate storage path
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/{file_type}s/{user['user_id']}/{file_id}.{ext}"
+    
+    # Get content type
+    content_type = MIME_TYPES.get(ext, file.content_type or "application/octet-stream")
+    
+    # Upload to storage
+    try:
+        result = put_object(path, data, content_type)
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Upload failed")
+    
+    # Store reference in DB
+    file_doc = {
+        "file_id": file_id,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(data)),
+        "file_type": file_type,
+        "uploaded_by": user["user_id"],
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.files.insert_one(file_doc)
+    
+    return {
+        "file_id": file_id,
+        "path": result["path"],
+        "original_filename": file.filename,
+        "size": file_doc["size"],
+        "url": f"/api/files/{file_id}"
+    }
+
+@api_router.get("/files/{file_id}")
+async def get_file(
+    file_id: str,
+    request: Request,
+    authorization: str = Header(None),
+    auth: str = Query(None)
+):
+    """Download a file by ID"""
+    # Get file record
+    file_record = await db.files.find_one(
+        {"file_id": file_id, "is_deleted": False},
+        {"_id": 0}
+    )
+    
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Get file from storage
+    try:
+        data, content_type = get_object(file_record["storage_path"])
+    except Exception as e:
+        logger.error(f"File download failed: {e}")
+        raise HTTPException(status_code=500, detail="File download failed")
+    
+    return Response(
+        content=data,
+        media_type=file_record.get("content_type", content_type),
+        headers={
+            "Content-Disposition": f'inline; filename="{file_record["original_filename"]}"'
+        }
+    )
+
+@api_router.delete("/files/{file_id}")
+async def delete_file(file_id: str, request: Request):
+    """Soft delete a file"""
+    user = await get_current_user(request)
+    
+    file_record = await db.files.find_one({"file_id": file_id}, {"_id": 0})
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Only owner or admin can delete
+    if file_record["uploaded_by"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.files.update_one(
+        {"file_id": file_id},
+        {"$set": {"is_deleted": True, "deleted_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"message": "File deleted successfully"}
+
+
+# ==================== ADMIN ROUTES ====================
+
+@api_router.get("/admin/dashboard")
+async def admin_dashboard(request: Request):
+    """Get admin dashboard stats"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get stats
+    total_users = await db.users.count_documents({})
+    total_lands = await db.lands.count_documents({})
+    pending_verification = await db.lands.count_documents({"verified": False})
+    verified_lands = await db.lands.count_documents({"verified": True})
+    total_transactions = await db.transactions.count_documents({})
+    
+    # Get recent unverified lands
+    unverified_lands = await db.lands.find(
+        {"verified": False},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    
+    # Get user breakdown by role
+    user_stats = await db.users.aggregate([
+        {"$group": {"_id": "$role", "count": {"$sum": 1}}}
+    ]).to_list(10)
+    
+    return {
+        "total_users": total_users,
+        "total_lands": total_lands,
+        "pending_verification": pending_verification,
+        "verified_lands": verified_lands,
+        "total_transactions": total_transactions,
+        "unverified_lands": unverified_lands,
+        "user_stats": {item["_id"]: item["count"] for item in user_stats}
+    }
+
+@api_router.get("/admin/lands/pending")
+async def get_pending_lands(request: Request):
+    """Get all lands pending verification"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    lands = await db.lands.find(
+        {"verified": False},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Enrich with owner info
+    for land in lands:
+        owner = await db.users.find_one(
+            {"user_id": land["owner_id"]},
+            {"_id": 0, "name": 1, "email": 1, "phone": 1}
+        )
+        land["owner"] = owner
+    
+    return lands
+
+@api_router.post("/admin/lands/{land_id}/verify")
+async def admin_verify_land(land_id: str, request: Request):
+    """Verify a land listing (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    body = {}
+    try:
+        body = await request.json()
+    except:
+        pass
+    notes = body.get("notes", "")
+    
+    result = await db.lands.update_one(
+        {"land_id": land_id},
+        {
+            "$set": {
+                "verified": True,
+                "verified_by": user["user_id"],
+                "verified_at": datetime.now(timezone.utc),
+                "verification_notes": notes,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Land not found")
+    
+    return {"message": "Land verified successfully", "land_id": land_id}
+
+@api_router.post("/admin/lands/{land_id}/reject")
+async def admin_reject_land(land_id: str, request: Request):
+    """Reject a land listing (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    body = await request.json()
+    reason = body.get("reason", "No reason provided")
+    
+    result = await db.lands.update_one(
+        {"land_id": land_id},
+        {
+            "$set": {
+                "status": "rejected",
+                "rejected_by": user["user_id"],
+                "rejected_at": datetime.now(timezone.utc),
+                "rejection_reason": reason,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Land not found")
+    
+    return {"message": "Land rejected", "land_id": land_id, "reason": reason}
+
+@api_router.get("/admin/users")
+async def admin_get_users(
+    request: Request,
+    role: Optional[str] = None,
+    limit: int = Query(default=50, le=100)
+):
+    """Get all users (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    query = {}
+    if role:
+        query["role"] = role
+    
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).limit(limit).to_list(limit)
+    return users
+
+@api_router.put("/admin/users/{user_id}/role")
+async def admin_update_user_role(user_id: str, request: Request):
+    """Update a user's role (admin only)"""
+    admin = await get_current_user(request)
+    
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    body = await request.json()
+    new_role = body.get("role")
+    
+    if new_role not in ["buyer", "seller", "agent", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    
+    result = await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"role": new_role}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "User role updated", "user_id": user_id, "new_role": new_role}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -769,6 +1113,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize storage on startup"""
+    try:
+        init_storage()
+    except Exception as e:
+        logger.error(f"Startup storage init failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

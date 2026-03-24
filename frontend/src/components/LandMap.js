@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Map, Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MapPin } from '@phosphor-icons/react';
+import { MapPin, Circle } from '@phosphor-icons/react';
 
 // Mapbox public demo token - works for development/demo purposes
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1IjoiZXhhbXBsZXMiLCJhIjoiY2p0MG01MXRqMW45cjQzb2R6b2ptc3J4MSJ9.gUWqjLwOuV8gOmRSbVxlrg';
@@ -20,6 +20,8 @@ export const LandMap = ({
   onMapClick = null,
   clickMode = false,
   markerPosition = null,
+  boundaryPoints = [],
+  drawingMode = false,
   height = '100%'
 }) => {
   const mapRef = useRef(null);
@@ -65,6 +67,31 @@ export const LandMap = ({
         }
       }))
   };
+
+  // Generate GeoJSON for drawing boundary
+  const drawingBoundaryGeoJson = boundaryPoints.length > 0 ? {
+    type: 'FeatureCollection',
+    features: [
+      // Line connecting points
+      ...(boundaryPoints.length > 1 ? [{
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: boundaryPoints
+        }
+      }] : []),
+      // Polygon if 3+ points (preview)
+      ...(boundaryPoints.length >= 3 ? [{
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[...boundaryPoints, boundaryPoints[0]]]
+        }
+      }] : [])
+    ]
+  } : null;
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -121,6 +148,46 @@ export const LandMap = ({
           </Source>
         )}
 
+        {/* Drawing boundary layer */}
+        {drawingBoundaryGeoJson && (
+          <Source id="drawing-boundary" type="geojson" data={drawingBoundaryGeoJson}>
+            {/* Polygon fill (preview) */}
+            <Layer
+              id="drawing-fill"
+              type="fill"
+              filter={['==', '$type', 'Polygon']}
+              paint={{
+                'fill-color': '#D95A2B',
+                'fill-opacity': 0.2
+              }}
+            />
+            {/* Line */}
+            <Layer
+              id="drawing-line"
+              type="line"
+              paint={{
+                'line-color': '#D95A2B',
+                'line-width': 2,
+                'line-dasharray': [2, 2]
+              }}
+            />
+          </Source>
+        )}
+
+        {/* Boundary points markers */}
+        {boundaryPoints.map((point, idx) => (
+          <Marker
+            key={`boundary-point-${idx}`}
+            longitude={point[0]}
+            latitude={point[1]}
+            anchor="center"
+          >
+            <div className="w-4 h-4 bg-accent border-2 border-white rounded-full shadow-md flex items-center justify-center">
+              <span className="text-[8px] text-white font-bold">{idx + 1}</span>
+            </div>
+          </Marker>
+        ))}
+
         {/* Land markers */}
         {lands.map(land => (
           <Marker
@@ -144,7 +211,7 @@ export const LandMap = ({
         ))}
 
         {/* Click mode marker */}
-        {clickMode && markerPosition && (
+        {clickMode && markerPosition && !drawingMode && (
           <Marker
             longitude={markerPosition.longitude}
             latitude={markerPosition.latitude}

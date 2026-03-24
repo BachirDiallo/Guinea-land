@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { LandMap } from '../components/LandMap';
@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, MapPin, Plus, X } from '@phosphor-icons/react';
+import { ArrowLeft, MapPin, Plus, X, Upload, FileText, Image as ImageIcon, Trash } from '@phosphor-icons/react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -25,7 +25,11 @@ export default function AddLand() {
   const { user } = useAuth();
   const [regions, setRegions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [markerPosition, setMarkerPosition] = useState(null);
+  const [boundaryPoints, setBoundaryPoints] = useState([]);
+  const [drawingMode, setDrawingMode] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -38,6 +42,12 @@ export default function AddLand() {
     land_type: 'residential',
     latitude: null,
     longitude: null,
+    boundaries: [],
+    photos: [],
+    documents: []
+  });
+
+  const [uploadedFiles, setUploadedFiles] = useState({
     photos: [],
     documents: []
   });
@@ -60,30 +70,126 @@ export default function AddLand() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleMapClick = (coords) => {
-    setMarkerPosition(coords);
-    setFormData(prev => ({
-      ...prev,
-      latitude: coords.latitude,
-      longitude: coords.longitude
-    }));
-  };
-
-  const handleAddPhoto = () => {
-    const url = prompt('Entrez l\'URL de la photo:');
-    if (url) {
+  const handleMapClick = useCallback((coords) => {
+    if (drawingMode) {
+      // Add boundary point
+      const newPoint = [coords.longitude, coords.latitude];
+      setBoundaryPoints(prev => [...prev, newPoint]);
+    } else {
+      // Set marker position
+      setMarkerPosition(coords);
       setFormData(prev => ({
         ...prev,
-        photos: [...prev.photos, url]
+        latitude: coords.latitude,
+        longitude: coords.longitude
       }));
+    }
+  }, [drawingMode]);
+
+  const handleFileUpload = async (file, fileType) => {
+    const isPhoto = fileType === 'photo';
+    isPhoto ? setUploadingPhoto(true) : setUploadingDoc(true);
+
+    const formDataUpload = new FormData();
+    formDataUpload.append('file', file);
+
+    try {
+      const res = await fetch(`${API}/upload?file_type=${fileType}`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formDataUpload
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || 'Upload failed');
+      }
+
+      const result = await res.json();
+      
+      // Add to uploaded files list
+      setUploadedFiles(prev => ({
+        ...prev,
+        [isPhoto ? 'photos' : 'documents']: [
+          ...prev[isPhoto ? 'photos' : 'documents'],
+          {
+            file_id: result.file_id,
+            name: result.original_filename,
+            url: `${API}/files/${result.file_id}`
+          }
+        ]
+      }));
+
+      // Add URL to form data
+      setFormData(prev => ({
+        ...prev,
+        [isPhoto ? 'photos' : 'documents']: [
+          ...prev[isPhoto ? 'photos' : 'documents'],
+          `${API}/files/${result.file_id}`
+        ]
+      }));
+
+      toast.success(`${isPhoto ? 'Photo' : 'Document'} téléchargé avec succès!`);
+    } catch (error) {
+      toast.error(error.message || 'Erreur lors du téléchargement');
+    } finally {
+      isPhoto ? setUploadingPhoto(false) : setUploadingDoc(false);
     }
   };
 
-  const handleRemovePhoto = (index) => {
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      handleFileUpload(file, 'photo');
+    }
+    e.target.value = '';
+  };
+
+  const handleDocSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      handleFileUpload(file, 'document');
+    }
+    e.target.value = '';
+  };
+
+  const removePhoto = (index) => {
+    setUploadedFiles(prev => ({
+      ...prev,
+      photos: prev.photos.filter((_, i) => i !== index)
+    }));
     setFormData(prev => ({
       ...prev,
       photos: prev.photos.filter((_, i) => i !== index)
     }));
+  };
+
+  const removeDocument = (index) => {
+    setUploadedFiles(prev => ({
+      ...prev,
+      documents: prev.documents.filter((_, i) => i !== index)
+    }));
+    setFormData(prev => ({
+      ...prev,
+      documents: prev.documents.filter((_, i) => i !== index)
+    }));
+  };
+
+  const clearBoundary = () => {
+    setBoundaryPoints([]);
+    setFormData(prev => ({ ...prev, boundaries: [] }));
+  };
+
+  const finishBoundary = () => {
+    if (boundaryPoints.length >= 3) {
+      // Close the polygon by adding the first point at the end
+      const closedBoundary = [...boundaryPoints, boundaryPoints[0]];
+      setFormData(prev => ({ ...prev, boundaries: closedBoundary }));
+      setDrawingMode(false);
+      toast.success('Délimitation enregistrée!');
+    } else {
+      toast.error('Minimum 3 points requis pour définir une délimitation');
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -97,15 +203,18 @@ export default function AddLand() {
     setLoading(true);
 
     try {
+      const submitData = {
+        ...formData,
+        price: parseFloat(formData.price),
+        size: parseFloat(formData.size),
+        boundaries: boundaryPoints.length >= 3 ? [...boundaryPoints, boundaryPoints[0]] : []
+      };
+
       const res = await fetch(`${API}/lands`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          ...formData,
-          price: parseFloat(formData.price),
-          size: parseFloat(formData.size)
-        })
+        body: JSON.stringify(submitData)
       });
 
       if (!res.ok) {
@@ -114,7 +223,7 @@ export default function AddLand() {
       }
 
       const land = await res.json();
-      toast.success('Terrain créé avec succès!');
+      toast.success('Terrain créé avec succès! En attente de vérification.');
       navigate(`/lands/${land.land_id}`);
     } catch (error) {
       toast.error(error.message);
@@ -260,31 +369,131 @@ export default function AddLand() {
                 </div>
               </div>
 
-              {/* Photos */}
+              {/* Photos Upload */}
               <div className="bg-card border border-border p-6">
-                <h2 className="font-bold mb-4">{t('land.form.photos')}</h2>
+                <h2 className="font-bold mb-4 flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5" />
+                  {t('land.form.photos')}
+                </h2>
                 
                 <div className="space-y-4">
-                  {formData.photos.length > 0 && (
+                  {uploadedFiles.photos.length > 0 && (
                     <div className="grid grid-cols-3 gap-2">
-                      {formData.photos.map((photo, idx) => (
-                        <div key={idx} className="relative">
-                          <img src={photo} alt="" className="w-full h-20 object-cover" />
+                      {uploadedFiles.photos.map((photo, idx) => (
+                        <div key={idx} className="relative group">
+                          <img 
+                            src={photo.url} 
+                            alt={photo.name} 
+                            className="w-full h-24 object-cover border border-border"
+                          />
                           <button
                             type="button"
-                            onClick={() => handleRemovePhoto(idx)}
-                            className="absolute top-1 right-1 p-1 bg-destructive text-white"
+                            onClick={() => removePhoto(idx)}
+                            className="absolute top-1 right-1 p-1 bg-destructive text-white opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X className="w-3 h-3" />
+                          </button>
+                          <span className="text-xs truncate block mt-1">{photo.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      onChange={handlePhotoSelect}
+                      className="hidden"
+                      id="photo-upload"
+                      data-testid="photo-upload-input"
+                    />
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => document.getElementById('photo-upload').click()}
+                      disabled={uploadingPhoto}
+                    >
+                      {uploadingPhoto ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                          Téléchargement...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Ajouter une photo
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Formats acceptés: JPG, PNG, GIF, WebP. Max 10MB par fichier.
+                  </p>
+                </div>
+              </div>
+
+              {/* Documents Upload */}
+              <div className="bg-card border border-border p-6">
+                <h2 className="font-bold mb-4 flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Documents officiels (Actes de vente, Titres fonciers)
+                </h2>
+                
+                <div className="space-y-4">
+                  {uploadedFiles.documents.length > 0 && (
+                    <div className="space-y-2">
+                      {uploadedFiles.documents.map((doc, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-secondary">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-5 h-5 text-accent" />
+                            <span className="text-sm truncate max-w-[200px]">{doc.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeDocument(idx)}
+                            className="p-1 text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash className="w-4 h-4" />
                           </button>
                         </div>
                       ))}
                     </div>
                   )}
-                  <Button type="button" variant="outline" onClick={handleAddPhoto} className="w-full">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Ajouter une photo (URL)
-                  </Button>
+                  
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept="application/pdf,image/jpeg,image/png"
+                      onChange={handleDocSelect}
+                      className="hidden"
+                      id="doc-upload"
+                      data-testid="doc-upload-input"
+                    />
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => document.getElementById('doc-upload').click()}
+                      disabled={uploadingDoc}
+                    >
+                      {uploadingDoc ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                          Téléchargement...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Ajouter un document
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Formats acceptés: PDF, JPG, PNG. Max 10MB par fichier.
+                  </p>
                 </div>
               </div>
 
@@ -304,15 +513,65 @@ export default function AddLand() {
               <div className="bg-card border border-border p-4">
                 <h2 className="font-bold mb-2">{t('land.form.location')}</h2>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Cliquez sur la carte pour définir l'emplacement exact du terrain
+                  {drawingMode 
+                    ? 'Cliquez sur la carte pour ajouter des points de délimitation' 
+                    : 'Cliquez sur la carte pour définir l\'emplacement exact du terrain'
+                  }
                 </p>
+                
+                {/* Boundary Drawing Controls */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <Button
+                    type="button"
+                    variant={drawingMode ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDrawingMode(!drawingMode)}
+                    data-testid="toggle-drawing-btn"
+                  >
+                    {drawingMode ? 'Mode: Délimitation' : 'Mode: Position'}
+                  </Button>
+                  
+                  {drawingMode && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={finishBoundary}
+                        disabled={boundaryPoints.length < 3}
+                        data-testid="finish-boundary-btn"
+                      >
+                        Terminer ({boundaryPoints.length} points)
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearBoundary}
+                        data-testid="clear-boundary-btn"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Effacer
+                      </Button>
+                    </>
+                  )}
+                </div>
+
+                {boundaryPoints.length > 0 && (
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Délimitation: {boundaryPoints.length} points définis
+                  </div>
+                )}
               </div>
+              
               <div className="h-[500px] border border-border">
                 <LandMap
                   lands={[]}
                   clickMode={true}
                   onMapClick={handleMapClick}
                   markerPosition={markerPosition}
+                  boundaryPoints={boundaryPoints}
+                  drawingMode={drawingMode}
                   height="100%"
                 />
               </div>

@@ -20,6 +20,7 @@ import AddLand from './pages/AddLand';
 import Transactions from './pages/Transactions';
 import NewTransaction from './pages/NewTransaction';
 import Profile from './pages/Profile';
+import AdminDashboard from './pages/AdminDashboard';
 
 const AppRouter = () => {
   const location = useLocation();
@@ -70,6 +71,11 @@ const AppRouter = () => {
           <Route path="/profile" element={
             <ProtectedRoute>
               <Profile />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <AdminDashboard />
             </ProtectedRoute>
           } />
         </Routes>
