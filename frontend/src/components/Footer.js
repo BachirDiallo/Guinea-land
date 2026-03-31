@@ -49,8 +49,13 @@ export const Footer = () => {
 
           {/* Legal */}
           <div>
-            <h4 className="font-bold mb-4 uppercase text-xs tracking-widest">Legal</h4>
+            <h4 className="font-bold mb-4 uppercase text-xs tracking-widest">Support</h4>
             <ul className="space-y-2 text-sm">
+              <li>
+                <Link to="/feedback" className="text-primary-foreground/80 hover:text-primary-foreground transition-colors">
+                  Suggestions & Feedback
+                </Link>
+              </li>
               <li>
                 <Link to="/about" className="text-primary-foreground/80 hover:text-primary-foreground transition-colors">
                   {t('footer.about')}

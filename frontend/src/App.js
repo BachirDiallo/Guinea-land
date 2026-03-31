@@ -24,6 +24,7 @@ import Transactions from './pages/Transactions';
 import NewTransaction from './pages/NewTransaction';
 import Profile from './pages/Profile';
 import AdminDashboard from './pages/AdminDashboard';
+import Feedback from './pages/Feedback';
 
 // Register Service Worker
 const registerServiceWorker = async () => {
@@ -76,6 +77,7 @@ const AppRouter = () => {
           <Route path="/map" element={<MapView />} />
           <Route path="/listings" element={<Listings />} />
           <Route path="/lands/:landId" element={<LandDetail />} />
+          <Route path="/feedback" element={<Feedback />} />
 
           {/* Protected Routes */}
           <Route path="/dashboard" element={

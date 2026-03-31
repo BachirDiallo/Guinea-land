@@ -217,13 +217,6 @@ def generate_transaction_pdf(transaction_data: dict, land_data: dict, buyer_data
         spaceAfter=10
     )
     
-    normal_style = ParagraphStyle(
-        'CustomNormal',
-        parent=styles['Normal'],
-        fontSize=10,
-        spaceAfter=6
-    )
-    
     elements = []
     
     # Header
@@ -431,10 +424,13 @@ def get_object(path: str) -> tuple:
 class UserBase(BaseModel):
     email: EmailStr
     name: str
-    role: str = "buyer"  # buyer, seller, agent, admin
+    role: str = "buyer"  # buyer, seller, agent, admin, chef_quartier, chef_secteur, chef_village, maire, prefet, gouverneur
     phone: Optional[str] = None
     address: Optional[str] = None
     picture: Optional[str] = None
+    # For administrative roles
+    admin_level: Optional[str] = None  # quartier, secteur, village, commune, prefecture, region
+    admin_area: Optional[str] = None  # Name of their jurisdiction
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -442,6 +438,8 @@ class UserCreate(BaseModel):
     name: str
     role: str = "buyer"
     phone: Optional[str] = None
+    admin_level: Optional[str] = None
+    admin_area: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -456,6 +454,10 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     picture: Optional[str] = None
+    admin_level: Optional[str] = None
+    admin_area: Optional[str] = None
+    rating_average: Optional[float] = None
+    rating_count: Optional[int] = None
     created_at: datetime
 
 class LandBase(BaseModel):
@@ -464,7 +466,10 @@ class LandBase(BaseModel):
     price: float
     size: float  # in square meters
     region: str
+    prefecture: Optional[str] = None
     commune: str
+    quartier: Optional[str] = None
+    secteur: Optional[str] = None
     address: str
     latitude: float
     longitude: float
@@ -483,7 +488,10 @@ class LandUpdate(BaseModel):
     price: Optional[float] = None
     size: Optional[float] = None
     region: Optional[str] = None
+    prefecture: Optional[str] = None
     commune: Optional[str] = None
+    quartier: Optional[str] = None
+    secteur: Optional[str] = None
     address: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
@@ -498,9 +506,84 @@ class LandResponse(LandBase):
     land_id: str
     owner_id: str
     owner_name: Optional[str] = None
+    owner_phone: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     verified: bool = False
+    verification_level: Optional[str] = None
+    verifications: Optional[List[dict]] = None
+    price_per_m2: Optional[float] = None
+
+# ==================== NEW MODELS FOR FEATURES ====================
+
+class ReviewCreate(BaseModel):
+    transaction_id: str
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+class ReviewResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    review_id: str
+    transaction_id: str
+    reviewer_id: str
+    reviewer_name: str
+    reviewed_id: str
+    reviewed_name: str
+    review_type: str  # buyer_reviewing_seller, seller_reviewing_buyer
+    rating: int
+    comment: Optional[str] = None
+    status: str = "approved"
+    created_at: datetime
+
+class NeighborhoodPriceCreate(BaseModel):
+    region: str
+    commune: str
+    quartier: Optional[str] = None
+    secteur: Optional[str] = None
+    land_type: str = "residential"
+    price_per_m2_min: float
+    price_per_m2_max: float
+    price_per_m2_avg: float
+
+class NeighborhoodPriceResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    price_id: str
+    region: str
+    commune: str
+    quartier: Optional[str] = None
+    secteur: Optional[str] = None
+    land_type: str
+    price_per_m2_min: float
+    price_per_m2_max: float
+    price_per_m2_avg: float
+    sample_size: int = 0
+    last_updated: datetime
+    updated_by: Optional[str] = None
+
+class FeedbackCreate(BaseModel):
+    type: str = "suggestion"  # suggestion, bug, complaint, other
+    category: str = "general"  # ui, map, transactions, general
+    title: str
+    description: str
+    user_email: Optional[str] = None
+
+class FeedbackResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    feedback_id: str
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    type: str
+    category: str
+    title: str
+    description: str
+    status: str = "new"
+    priority: str = "medium"
+    admin_notes: Optional[str] = None
+    created_at: datetime
+
+class VerificationRequest(BaseModel):
+    notes: Optional[str] = None
 
 class TransactionBase(BaseModel):
     land_id: str
@@ -891,7 +974,7 @@ async def get_lands(
     lands = await db.lands.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
     
     # Get owner names
-    owner_ids = list(set(l["owner_id"] for l in lands))
+    owner_ids = list(set(land["owner_id"] for land in lands))
     owners = await db.users.find(
         {"user_id": {"$in": owner_ids}},
         {"_id": 0, "user_id": 1, "name": 1}
@@ -954,23 +1037,6 @@ async def delete_land(land_id: str, request: Request):
     
     await db.lands.delete_one({"land_id": land_id})
     return {"message": "Land deleted successfully"}
-
-@api_router.post("/lands/{land_id}/verify")
-async def verify_land(land_id: str, request: Request):
-    user = await get_current_user(request)
-    
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    result = await db.lands.update_one(
-        {"land_id": land_id},
-        {"$set": {"verified": True, "updated_at": datetime.now(timezone.utc)}}
-    )
-    
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Land not found")
-    
-    return {"message": "Land verified successfully"}
 
 
 # ==================== TRANSACTION ROUTES ====================
@@ -1393,7 +1459,7 @@ async def admin_verify_land(land_id: str, request: Request):
     body = {}
     try:
         body = await request.json()
-    except:
+    except Exception:
         pass
     notes = body.get("notes", "")
     
@@ -1473,19 +1539,459 @@ async def admin_update_user_role(user_id: str, request: Request):
     
     body = await request.json()
     new_role = body.get("role")
+    admin_level = body.get("admin_level")
+    admin_area = body.get("admin_area")
     
-    if new_role not in ["buyer", "seller", "agent", "admin"]:
+    valid_roles = ["buyer", "seller", "agent", "admin", "chef_quartier", "chef_secteur", "chef_village", "maire", "prefet", "gouverneur"]
+    if new_role not in valid_roles:
         raise HTTPException(status_code=400, detail="Invalid role")
+    
+    update_data = {"role": new_role}
+    if admin_level:
+        update_data["admin_level"] = admin_level
+    if admin_area:
+        update_data["admin_area"] = admin_area
     
     result = await db.users.update_one(
         {"user_id": user_id},
-        {"$set": {"role": new_role}}
+        {"$set": update_data}
     )
     
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     
     return {"message": "User role updated", "user_id": user_id, "new_role": new_role}
+
+
+# ==================== MULTI-LEVEL VERIFICATION SYSTEM ====================
+
+ADMIN_ROLES = ["chef_quartier", "chef_secteur", "chef_village", "maire", "prefet", "gouverneur", "admin"]
+VERIFICATION_HIERARCHY = {
+    "chef_quartier": "quartier",
+    "chef_secteur": "secteur", 
+    "chef_village": "village",
+    "maire": "commune",
+    "prefet": "prefecture",
+    "gouverneur": "region",
+    "admin": "platform"
+}
+
+@api_router.post("/lands/{land_id}/verify")
+async def verify_land_multilevel(land_id: str, request: Request):
+    """Verify a land listing (administrative users only)"""
+    user = await get_current_user(request)
+    user_role = user.get("role")
+    
+    if user_role not in ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="Seuls les utilisateurs administratifs peuvent vérifier les terrains")
+    
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    notes = body.get("notes", "")
+    
+    # Get the land
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Determine verification level
+    verification_level = VERIFICATION_HIERARCHY.get(user_role, "unknown")
+    
+    # Create verification record
+    verification_record = {
+        "verified_by": user["user_id"],
+        "verifier_name": user.get("name", ""),
+        "verifier_role": user_role,
+        "verification_level": verification_level,
+        "admin_area": user.get("admin_area", ""),
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "notes": notes
+    }
+    
+    # Update land with verification
+    existing_verifications = land.get("verifications", [])
+    existing_verifications.append(verification_record)
+    
+    await db.lands.update_one(
+        {"land_id": land_id},
+        {
+            "$set": {
+                "verified": True,
+                "verification_level": verification_level,
+                "verifications": existing_verifications,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    return {
+        "message": "Terrain vérifié avec succès",
+        "land_id": land_id,
+        "verification_level": verification_level,
+        "verifier": user.get("name"),
+        "verifier_role": user_role
+    }
+
+@api_router.get("/lands/{land_id}/verifications")
+async def get_land_verifications(land_id: str):
+    """Get all verifications for a land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0, "verifications": 1, "verified": 1, "verification_level": 1})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    return {
+        "land_id": land_id,
+        "verified": land.get("verified", False),
+        "verification_level": land.get("verification_level"),
+        "verifications": land.get("verifications", [])
+    }
+
+
+# ==================== RATINGS & REVIEWS SYSTEM ====================
+
+@api_router.post("/reviews", response_model=ReviewResponse)
+async def create_review(review_data: ReviewCreate, request: Request):
+    """Create a review for a completed transaction"""
+    user = await get_current_user(request)
+    
+    # Get the transaction
+    transaction = await db.transactions.find_one(
+        {"transaction_id": review_data.transaction_id},
+        {"_id": 0}
+    )
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction non trouvée")
+    
+    if transaction.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Seules les transactions complétées peuvent être évaluées")
+    
+    # Determine who is reviewing whom
+    reviewer_id = user["user_id"]
+    if reviewer_id == transaction["buyer_id"]:
+        review_type = "buyer_reviewing_seller"
+        reviewed_id = transaction["seller_id"]
+        reviewed_name = transaction.get("seller_name", "")
+    elif reviewer_id == transaction["seller_id"]:
+        review_type = "seller_reviewing_buyer"
+        reviewed_id = transaction["buyer_id"]
+        reviewed_name = transaction.get("buyer_name", "")
+    else:
+        raise HTTPException(status_code=403, detail="Vous n'êtes pas partie à cette transaction")
+    
+    # Check if already reviewed
+    existing_review = await db.reviews.find_one({
+        "transaction_id": review_data.transaction_id,
+        "reviewer_id": reviewer_id
+    })
+    if existing_review:
+        raise HTTPException(status_code=400, detail="Vous avez déjà évalué cette transaction")
+    
+    # Create review
+    review_id = f"review_{uuid.uuid4().hex[:12]}"
+    review_doc = {
+        "review_id": review_id,
+        "transaction_id": review_data.transaction_id,
+        "reviewer_id": reviewer_id,
+        "reviewer_name": user.get("name", ""),
+        "reviewed_id": reviewed_id,
+        "reviewed_name": reviewed_name,
+        "review_type": review_type,
+        "rating": review_data.rating,
+        "comment": review_data.comment,
+        "status": "approved",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.reviews.insert_one(review_doc)
+    
+    # Update user's average rating
+    all_reviews = await db.reviews.find({"reviewed_id": reviewed_id, "status": "approved"}).to_list(1000)
+    if all_reviews:
+        avg_rating = sum(r["rating"] for r in all_reviews) / len(all_reviews)
+        await db.users.update_one(
+            {"user_id": reviewed_id},
+            {"$set": {"rating_average": round(avg_rating, 2), "rating_count": len(all_reviews)}}
+        )
+    
+    return ReviewResponse(**{k: v for k, v in review_doc.items() if k != "_id"})
+
+@api_router.get("/reviews/user/{user_id}")
+async def get_user_reviews(user_id: str, limit: int = Query(default=20, le=100)):
+    """Get reviews for a user"""
+    reviews = await db.reviews.find(
+        {"reviewed_id": user_id, "status": "approved"},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "rating_average": 1, "rating_count": 1, "name": 1})
+    
+    return {
+        "user_id": user_id,
+        "user_name": user.get("name") if user else None,
+        "rating_average": user.get("rating_average", 0) if user else 0,
+        "rating_count": user.get("rating_count", 0) if user else 0,
+        "reviews": reviews
+    }
+
+@api_router.get("/reviews/transaction/{transaction_id}")
+async def get_transaction_reviews(transaction_id: str):
+    """Get reviews for a transaction"""
+    reviews = await db.reviews.find(
+        {"transaction_id": transaction_id},
+        {"_id": 0}
+    ).to_list(10)
+    
+    return {"transaction_id": transaction_id, "reviews": reviews}
+
+
+# ==================== NEIGHBORHOOD PRICING SYSTEM ====================
+
+@api_router.get("/prices/neighborhood")
+async def get_neighborhood_prices(
+    region: Optional[str] = None,
+    commune: Optional[str] = None,
+    quartier: Optional[str] = None,
+    land_type: Optional[str] = None
+):
+    """Get reference prices per square meter by neighborhood"""
+    query = {}
+    if region:
+        query["region"] = region
+    if commune:
+        query["commune"] = commune
+    if quartier:
+        query["quartier"] = quartier
+    if land_type:
+        query["land_type"] = land_type
+    
+    prices = await db.neighborhood_prices.find(query, {"_id": 0}).to_list(100)
+    return prices
+
+@api_router.post("/prices/neighborhood", response_model=NeighborhoodPriceResponse)
+async def create_neighborhood_price(price_data: NeighborhoodPriceCreate, request: Request):
+    """Create or update neighborhood price reference (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") not in ["admin", "maire", "prefet", "gouverneur"]:
+        raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent définir les prix de référence")
+    
+    # Check if price exists for this location
+    existing = await db.neighborhood_prices.find_one({
+        "region": price_data.region,
+        "commune": price_data.commune,
+        "quartier": price_data.quartier,
+        "secteur": price_data.secteur,
+        "land_type": price_data.land_type
+    })
+    
+    if existing:
+        # Update existing
+        await db.neighborhood_prices.update_one(
+            {"price_id": existing["price_id"]},
+            {
+                "$set": {
+                    "price_per_m2_min": price_data.price_per_m2_min,
+                    "price_per_m2_max": price_data.price_per_m2_max,
+                    "price_per_m2_avg": price_data.price_per_m2_avg,
+                    "last_updated": datetime.now(timezone.utc),
+                    "updated_by": user["user_id"]
+                }
+            }
+        )
+        price_id = existing["price_id"]
+    else:
+        # Create new
+        price_id = f"price_{uuid.uuid4().hex[:12]}"
+        price_doc = {
+            "price_id": price_id,
+            "region": price_data.region,
+            "commune": price_data.commune,
+            "quartier": price_data.quartier,
+            "secteur": price_data.secteur,
+            "land_type": price_data.land_type,
+            "price_per_m2_min": price_data.price_per_m2_min,
+            "price_per_m2_max": price_data.price_per_m2_max,
+            "price_per_m2_avg": price_data.price_per_m2_avg,
+            "sample_size": 0,
+            "last_updated": datetime.now(timezone.utc),
+            "updated_by": user["user_id"],
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.neighborhood_prices.insert_one(price_doc)
+    
+    # Fetch and return
+    result = await db.neighborhood_prices.find_one({"price_id": price_id}, {"_id": 0})
+    return NeighborhoodPriceResponse(**result)
+
+@api_router.get("/prices/compare/{land_id}")
+async def compare_land_price(land_id: str):
+    """Compare a land's price per m² with neighborhood reference"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Calculate land's price per m²
+    land_price_per_m2 = land["price"] / land["size"] if land["size"] > 0 else 0
+    
+    # Find neighborhood reference price
+    ref_price = await db.neighborhood_prices.find_one({
+        "region": land.get("region"),
+        "commune": land.get("commune"),
+        "land_type": land.get("land_type", "residential")
+    }, {"_id": 0})
+    
+    if not ref_price:
+        # Try just region
+        ref_price = await db.neighborhood_prices.find_one({
+            "region": land.get("region"),
+            "land_type": land.get("land_type", "residential")
+        }, {"_id": 0})
+    
+    comparison = {
+        "land_id": land_id,
+        "land_price": land["price"],
+        "land_size": land["size"],
+        "land_price_per_m2": round(land_price_per_m2, 2),
+        "reference_available": ref_price is not None
+    }
+    
+    if ref_price:
+        comparison["reference"] = {
+            "price_per_m2_min": ref_price["price_per_m2_min"],
+            "price_per_m2_max": ref_price["price_per_m2_max"],
+            "price_per_m2_avg": ref_price["price_per_m2_avg"]
+        }
+        
+        avg_ref = ref_price["price_per_m2_avg"]
+        if avg_ref > 0:
+            diff_percent = ((land_price_per_m2 - avg_ref) / avg_ref) * 100
+            comparison["price_assessment"] = {
+                "difference_percent": round(diff_percent, 1),
+                "status": "above_market" if diff_percent > 15 else ("below_market" if diff_percent < -15 else "fair_market")
+            }
+    
+    return comparison
+
+
+# ==================== FEEDBACK & SUGGESTIONS SYSTEM ====================
+
+@api_router.post("/feedback", response_model=FeedbackResponse)
+async def submit_feedback(feedback_data: FeedbackCreate, request: Request):
+    """Submit feedback or suggestion (can be anonymous)"""
+    user = await get_optional_user(request)
+    
+    feedback_id = f"feedback_{uuid.uuid4().hex[:12]}"
+    feedback_doc = {
+        "feedback_id": feedback_id,
+        "user_id": user["user_id"] if user else None,
+        "user_name": user.get("name") if user else None,
+        "user_email": feedback_data.user_email or (user.get("email") if user else None),
+        "type": feedback_data.type,
+        "category": feedback_data.category,
+        "title": feedback_data.title,
+        "description": feedback_data.description,
+        "status": "new",
+        "priority": "medium",
+        "admin_notes": None,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.feedback.insert_one(feedback_doc)
+    
+    return FeedbackResponse(**{k: v for k, v in feedback_doc.items() if k != "_id"})
+
+@api_router.get("/feedback")
+async def get_feedback(
+    request: Request,
+    type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = Query(default=50, le=100)
+):
+    """Get feedback (admin sees all, users see their own)"""
+    user = await get_optional_user(request)
+    
+    query = {}
+    if user and user.get("role") != "admin":
+        query["user_id"] = user["user_id"]
+    
+    if type:
+        query["type"] = type
+    if status:
+        query["status"] = status
+    
+    feedback_list = await db.feedback.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return feedback_list
+
+@api_router.put("/feedback/{feedback_id}")
+async def update_feedback(feedback_id: str, request: Request):
+    """Update feedback status (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    body = await request.json()
+    
+    update_data = {}
+    if "status" in body:
+        update_data["status"] = body["status"]
+    if "priority" in body:
+        update_data["priority"] = body["priority"]
+    if "admin_notes" in body:
+        update_data["admin_notes"] = body["admin_notes"]
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    result = await db.feedback.update_one(
+        {"feedback_id": feedback_id},
+        {"$set": update_data}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    
+    return {"message": "Feedback updated", "feedback_id": feedback_id}
+
+
+# ==================== ADMIN STATISTICS ENHANCED ====================
+
+@api_router.get("/admin/feedback-stats")
+async def get_feedback_stats(request: Request):
+    """Get feedback statistics (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Count by status
+    new_count = await db.feedback.count_documents({"status": "new"})
+    in_progress_count = await db.feedback.count_documents({"status": "in_progress"})
+    resolved_count = await db.feedback.count_documents({"status": "resolved"})
+    
+    # Count by type
+    suggestions = await db.feedback.count_documents({"type": "suggestion"})
+    bugs = await db.feedback.count_documents({"type": "bug"})
+    complaints = await db.feedback.count_documents({"type": "complaint"})
+    
+    return {
+        "by_status": {
+            "new": new_count,
+            "in_progress": in_progress_count,
+            "resolved": resolved_count
+        },
+        "by_type": {
+            "suggestions": suggestions,
+            "bugs": bugs,
+            "complaints": complaints
+        },
+        "total": new_count + in_progress_count + resolved_count
+    }
 
 
 # Include the router in the main app

@@ -6,6 +6,7 @@ import { LandMap } from '../components/LandMap';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { WhatsAppContactButton, WhatsAppShareButton } from '../components/WhatsApp';
+import { VerificationBadge, PriceComparison, UserRatingBadge } from '../components/Reviews';
 import { toast } from 'sonner';
 import { 
   MapPin, 
@@ -19,7 +20,8 @@ import {
   FileText,
   Image as ImageIcon,
   Receipt,
-  Share
+  Share,
+  ShieldCheck
 } from '@phosphor-icons/react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -187,7 +189,37 @@ export default function LandDetail() {
                 <Tag className="w-8 h-8" weight="fill" />
                 {land.price?.toLocaleString()} {t('common.gnf')}
               </div>
+              
+              {/* Price per m² */}
+              {land.size > 0 && (
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {Math.round(land.price / land.size).toLocaleString()} GNF/m²
+                </div>
+              )}
             </div>
+
+            {/* Verifications */}
+            {land.verifications && land.verifications.length > 0 && (
+              <div className="bg-card border border-border p-6">
+                <h3 className="font-bold mb-3 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-green-600" weight="fill" />
+                  Vérifications officielles
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {land.verifications.map((v, idx) => (
+                    <VerificationBadge 
+                      key={idx}
+                      level={v.verification_level}
+                      verifierRole={v.verifier_role}
+                      verifierName={v.verifier_name}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Price Comparison */}
+            <PriceComparison landId={landId} />
 
             {/* Key Info */}
             <div className="grid grid-cols-2 gap-4">
