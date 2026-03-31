@@ -14,10 +14,17 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - **Language**: Bilingual French (primary) + English
 
 ## User Personas
-1. **Buyers**: Looking to purchase land in Guinea
-2. **Sellers**: Property owners wanting to sell their land
+1. **Buyers (Acheteurs)**: Looking to purchase land in Guinea
+2. **Sellers (Vendeurs)**: Property owners wanting to sell their land
 3. **Real Estate Agents**: Professionals managing land transactions
 4. **Administrators**: Platform managers verifying land listings
+5. **Administrative Officials (Government)**:
+   - Chef de Quartier - Neighborhood chief (quartier level verification)
+   - Chef de Secteur - Sector chief (secteur level verification)
+   - Chef de Village - Village chief (village level verification)
+   - Maire - Mayor (commune level verification)
+   - Préfet - Prefect (prefecture level verification)
+   - Gouverneur - Governor (region level verification)
 
 ## Core Requirements (Static)
 - Interactive map with land plot boundaries
@@ -86,6 +93,30 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
   - Offline indicator banner on map
   - Touch-optimized interactions (no rotate on mobile)
 
+### Phase 5 - Trust & Market Regulation (March 31, 2024)
+- ✅ **Multi-Level Verification System**
+  - Administrative user roles: chef_quartier, chef_secteur, chef_village, maire, prefet, gouverneur
+  - Verification badges showing authority level
+  - Verification history with timestamps and notes
+  - Each level can verify lands in their jurisdiction
+- ✅ **Ratings & Reviews System**
+  - 5-star rating for buyers and sellers
+  - Written reviews linked to transactions
+  - Average rating displayed on profiles
+  - Review moderation system
+- ✅ **Neighborhood Price Reference**
+  - Price per m² by region/commune/quartier
+  - Min/max/average price ranges
+  - Price comparison on land detail pages
+  - Market status indicators (fair/above/below market)
+  - Admin-managed price data
+- ✅ **Feedback & Suggestions System**
+  - Dedicated feedback page at /feedback
+  - Types: Suggestion, Bug report, Complaint, Other
+  - Categories: General, UI, Map, Transactions, Verification, Payments
+  - Optional email for anonymous users
+  - Admin dashboard for feedback management
+
 ## Test Credentials
 - **Admin**: admin@guinealand.com / admin123
 - **Demo Agent**: demo@guinealand.com (Google OAuth)
@@ -105,18 +136,26 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - [x] Email notifications ✅
 - [x] PDF generation ✅
 - [x] Mobile optimization ✅
+- [x] Authenticity Verification System ✅
+- [x] Reliability Ratings/Reviews ✅
+- [x] Price per m² by Neighborhood ✅
+- [x] Suggestions & Feedback System ✅
 
 ### P1 - High Priority (Remaining)
 - [ ] Verify custom domain for email sending
 - [ ] SMS notifications (Twilio - user opted to wait)
 - [ ] Push notifications for mobile
 - [x] Offline support / PWA ✅
+- [ ] Fix Mapbox token for full map features
 
 ### P2 - Nice to Have
-- [ ] Payment integration for premium listings
+- [ ] Payment integration (Orange Money, MTN Money)
 - [ ] Advanced search with saved filters
 - [ ] Land comparison feature
 - [x] WhatsApp integration for Guinea market ✅
+
+### P3 - Future
+- [ ] Local languages: Pular (Adlam), Maninka, Soussou, N'Ko
 
 ## Tech Stack
 - Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, Resend, ReportLab
