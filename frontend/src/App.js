@@ -25,6 +25,9 @@ import NewTransaction from './pages/NewTransaction';
 import Profile from './pages/Profile';
 import AdminDashboard from './pages/AdminDashboard';
 import Feedback from './pages/Feedback';
+import MarketTrends from './pages/MarketTrends';
+import LandComparison from './pages/LandComparison';
+import SavedSearches from './pages/SavedSearches';
 
 // Register Service Worker
 const registerServiceWorker = async () => {
@@ -78,6 +81,8 @@ const AppRouter = () => {
           <Route path="/listings" element={<Listings />} />
           <Route path="/lands/:landId" element={<LandDetail />} />
           <Route path="/feedback" element={<Feedback />} />
+          <Route path="/market-trends" element={<MarketTrends />} />
+          <Route path="/compare" element={<LandComparison />} />
 
           {/* Protected Routes */}
           <Route path="/dashboard" element={
@@ -108,6 +113,11 @@ const AppRouter = () => {
           <Route path="/admin" element={
             <ProtectedRoute>
               <AdminDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/saved-searches" element={
+            <ProtectedRoute>
+              <SavedSearches />
             </ProtectedRoute>
           } />
         </Routes>

@@ -365,6 +365,96 @@ const resources = {
       "footer.privacy": "Privacy Policy",
       "footer.copyright": "© 2024 Guinea Land Hub. All rights reserved."
     }
+  },
+  // Pular (Fulfulde) - Spoken in Fouta Djallon
+  pu: {
+    translation: {
+      "nav.home": "Suudu",
+      "nav.map": "Taariika",
+      "nav.listings": "Leyɗe",
+      "nav.dashboard": "Jokkondiral",
+      "nav.login": "Naatugol",
+      "nav.register": "Winndugol",
+      "nav.logout": "Yaltugol",
+      
+      "landing.hero.title": "Jeyal Leyɗe e Gine",
+      "landing.hero.subtitle": "Ɗaɓɓitu, Reenu, Toppitu Leyɗe Maa",
+      "landing.hero.cta": "Yiiru Leyɗe",
+      
+      "lands.title": "Leyɗe Goodɗe",
+      "lands.search": "Yiylo leydi...",
+      "lands.type.residential": "Hoɗorde",
+      "lands.type.commercial": "Njulaari",
+      "lands.type.agricultural": "Ngesa",
+      "lands.status.available": "Ina woodi",
+      "lands.status.pending": "Ina jokkaa",
+      "lands.status.sold": "Soodaama",
+      
+      "common.loading": "Ina loowa...",
+      "common.save": "Danndu",
+      "common.cancel": "Haɗu",
+      "common.search": "Yiylo"
+    }
+  },
+  // Maninka (Mandingo) - Spoken in Upper Guinea
+  ma: {
+    translation: {
+      "nav.home": "So",
+      "nav.map": "Dugukolo jatebla",
+      "nav.listings": "Dugukolo",
+      "nav.dashboard": "Kunnafonisebla",
+      "nav.login": "Don",
+      "nav.register": "Tɔgɔ sɛbɛn",
+      "nav.logout": "Bɔ",
+      
+      "landing.hero.title": "Dugukolo Feere Gine",
+      "landing.hero.subtitle": "Dugukolo Mara ni Feere",
+      "landing.hero.cta": "Dugukolo Lajɛ",
+      
+      "lands.title": "Dugukolo Minnu Bɛ Yen",
+      "lands.search": "Dugukolo ɲini...",
+      "lands.type.residential": "Sigida",
+      "lands.type.commercial": "Julaya",
+      "lands.type.agricultural": "Sɛnɛ",
+      "lands.status.available": "A bɛ yen",
+      "lands.status.pending": "A bɛ senna",
+      "lands.status.sold": "A feera",
+      
+      "common.loading": "A bɛ donna...",
+      "common.save": "A mara",
+      "common.cancel": "A dabila",
+      "common.search": "Ɲini"
+    }
+  },
+  // Soussou (Susu) - Spoken in Maritime Guinea/Conakry
+  su: {
+    translation: {
+      "nav.home": "Banxi",
+      "nav.map": "Bɔxi masenyi",
+      "nav.listings": "Bɔxie",
+      "nav.dashboard": "Kunfa yire",
+      "nav.login": "So",
+      "nav.register": "I xili sɛbɛ",
+      "nav.logout": "Mini",
+      
+      "landing.hero.title": "Bɔxi Matinyi Gine",
+      "landing.hero.subtitle": "Bɔxi Sɔtɔ, Mati, nun Maraya",
+      "landing.hero.cta": "Bɔxie Mato",
+      
+      "lands.title": "Bɔxie Naxan Na",
+      "lands.search": "Bɔxi fen...",
+      "lands.type.residential": "Sabatide",
+      "lands.type.commercial": "Yulaya",
+      "lands.type.agricultural": "Xɛ",
+      "lands.status.available": "A na",
+      "lands.status.pending": "A matinfe",
+      "lands.status.sold": "A matima",
+      
+      "common.loading": "A sofe...",
+      "common.save": "A ratɛ",
+      "common.cancel": "A lu",
+      "common.search": "Fen"
+    }
   }
 };
 

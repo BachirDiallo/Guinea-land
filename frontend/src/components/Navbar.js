@@ -103,10 +103,20 @@ export const Navbar = () => {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => changeLanguage('fr')}>
-                  {t('settings.language.fr')}
+                  Français
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => changeLanguage('en')}>
-                  {t('settings.language.en')}
+                  English
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => changeLanguage('pu')}>
+                  𞤆𞤵𞤤𞤢𞤪 (Pular)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => changeLanguage('ma')}>
+                  Maninka
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => changeLanguage('su')}>
+                  Susu
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

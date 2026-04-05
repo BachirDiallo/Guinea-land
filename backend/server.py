@@ -2329,6 +2329,287 @@ async def get_feedback_stats(request: Request):
     }
 
 
+# ==================== MARKET TRENDS ====================
+
+@api_router.get("/market/trends")
+async def get_market_trends(
+    region: Optional[str] = None,
+    commune: Optional[str] = None,
+    land_type: Optional[str] = None,
+    months: int = Query(default=12, le=36)
+):
+    """Get price trends over time by month"""
+    from_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
+    
+    # Get completed transactions
+    transactions = await db.transactions.find(
+        {"status": "completed"},
+        {"_id": 0}
+    ).to_list(2000)
+    
+    # Group by month
+    monthly_data = {}
+    
+    for tx in transactions:
+        tx_land = await db.lands.find_one({"land_id": tx.get("land_id")}, {"_id": 0})
+        if not tx_land:
+            continue
+        
+        # Apply filters
+        if region and tx_land.get("region") != region:
+            continue
+        if commune and tx_land.get("commune") != commune:
+            continue
+        if land_type and tx_land.get("land_type") != land_type:
+            continue
+        
+        tx_date = tx.get("transaction_date") or tx.get("created_at")
+        if isinstance(tx_date, str):
+            try:
+                tx_date = datetime.fromisoformat(tx_date.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        
+        if tx_date and tx_date.tzinfo is None:
+            tx_date = tx_date.replace(tzinfo=timezone.utc)
+        
+        if tx_date and tx_date >= from_date:
+            month_key = tx_date.strftime("%Y-%m")
+            size = tx_land.get("size", 1)
+            price_per_m2 = tx.get("price", 0) / size if size > 0 else 0
+            
+            if month_key not in monthly_data:
+                monthly_data[month_key] = {"prices": [], "count": 0, "volume": 0}
+            
+            monthly_data[month_key]["prices"].append(price_per_m2)
+            monthly_data[month_key]["count"] += 1
+            monthly_data[month_key]["volume"] += tx.get("price", 0)
+    
+    # Calculate averages and format
+    trends = []
+    for month, data in sorted(monthly_data.items()):
+        avg_price = sum(data["prices"]) / len(data["prices"]) if data["prices"] else 0
+        trends.append({
+            "month": month,
+            "avg_price_per_m2": round(avg_price, 2),
+            "transaction_count": data["count"],
+            "total_volume": data["volume"]
+        })
+    
+    # Calculate overall trend direction
+    if len(trends) >= 2:
+        first_avg = trends[0]["avg_price_per_m2"]
+        last_avg = trends[-1]["avg_price_per_m2"]
+        if first_avg > 0:
+            change_percent = ((last_avg - first_avg) / first_avg) * 100
+            trend_direction = "up" if change_percent > 5 else ("down" if change_percent < -5 else "stable")
+        else:
+            change_percent = 0
+            trend_direction = "stable"
+    else:
+        change_percent = 0
+        trend_direction = "insufficient_data"
+    
+    return {
+        "period_months": months,
+        "filters": {"region": region, "commune": commune, "land_type": land_type},
+        "trends": trends,
+        "summary": {
+            "total_transactions": sum(t["transaction_count"] for t in trends),
+            "total_volume": sum(t["total_volume"] for t in trends),
+            "trend_direction": trend_direction,
+            "change_percent": round(change_percent, 1)
+        }
+    }
+
+
+# ==================== SAVED SEARCHES ====================
+
+@api_router.post("/searches/save")
+async def save_search(request: Request):
+    """Save a search filter for later use"""
+    user = await get_current_user(request)
+    body = await request.json()
+    
+    search_id = f"search_{uuid.uuid4().hex[:12]}"
+    search_doc = {
+        "search_id": search_id,
+        "user_id": user["user_id"],
+        "name": body.get("name", "Ma recherche"),
+        "filters": {
+            "search": body.get("search"),
+            "region": body.get("region"),
+            "commune": body.get("commune"),
+            "land_type": body.get("land_type"),
+            "status": body.get("status"),
+            "min_price": body.get("min_price"),
+            "max_price": body.get("max_price"),
+            "min_size": body.get("min_size"),
+            "max_size": body.get("max_size"),
+            "verified_only": body.get("verified_only", False)
+        },
+        "notify_new_matches": body.get("notify_new_matches", False),
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.saved_searches.insert_one(search_doc)
+    return {"message": "Recherche sauvegardée", "search_id": search_id}
+
+
+@api_router.get("/searches")
+async def get_saved_searches(request: Request):
+    """Get user's saved searches"""
+    user = await get_current_user(request)
+    
+    searches = await db.saved_searches.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    
+    return searches
+
+
+@api_router.delete("/searches/{search_id}")
+async def delete_saved_search(search_id: str, request: Request):
+    """Delete a saved search"""
+    user = await get_current_user(request)
+    
+    result = await db.saved_searches.delete_one({
+        "search_id": search_id,
+        "user_id": user["user_id"]
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Recherche non trouvée")
+    
+    return {"message": "Recherche supprimée"}
+
+
+@api_router.get("/searches/{search_id}/results")
+async def execute_saved_search(search_id: str, request: Request):
+    """Execute a saved search and return matching lands"""
+    user = await get_current_user(request)
+    
+    search = await db.saved_searches.find_one({
+        "search_id": search_id,
+        "user_id": user["user_id"]
+    }, {"_id": 0})
+    
+    if not search:
+        raise HTTPException(status_code=404, detail="Recherche non trouvée")
+    
+    filters = search.get("filters", {})
+    query = {}
+    
+    if filters.get("search"):
+        query["$or"] = [
+            {"title": {"$regex": filters["search"], "$options": "i"}},
+            {"description": {"$regex": filters["search"], "$options": "i"}}
+        ]
+    if filters.get("region"):
+        query["region"] = filters["region"]
+    if filters.get("commune"):
+        query["commune"] = filters["commune"]
+    if filters.get("land_type"):
+        query["land_type"] = filters["land_type"]
+    if filters.get("status"):
+        query["status"] = filters["status"]
+    if filters.get("min_price"):
+        query["price"] = {"$gte": float(filters["min_price"])}
+    if filters.get("max_price"):
+        if "price" in query:
+            query["price"]["$lte"] = float(filters["max_price"])
+        else:
+            query["price"] = {"$lte": float(filters["max_price"])}
+    if filters.get("min_size"):
+        query["size"] = {"$gte": float(filters["min_size"])}
+    if filters.get("max_size"):
+        if "size" in query:
+            query["size"]["$lte"] = float(filters["max_size"])
+        else:
+            query["size"] = {"$lte": float(filters["max_size"])}
+    if filters.get("verified_only"):
+        query["verified"] = True
+    
+    lands = await db.lands.find(query, {"_id": 0}).limit(50).to_list(50)
+    
+    return {
+        "search_id": search_id,
+        "search_name": search.get("name"),
+        "filters": filters,
+        "results": lands,
+        "count": len(lands)
+    }
+
+
+# ==================== LAND COMPARISON ====================
+
+@api_router.post("/compare")
+async def compare_lands(request: Request):
+    """Compare multiple lands side by side"""
+    body = await request.json()
+    land_ids = body.get("land_ids", [])
+    
+    if len(land_ids) < 2:
+        raise HTTPException(status_code=400, detail="Au moins 2 terrains requis pour comparaison")
+    if len(land_ids) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 terrains pour comparaison")
+    
+    lands = []
+    for land_id in land_ids:
+        land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+        if land:
+            # Calculate price per m²
+            land["price_per_m2"] = round(land["price"] / land["size"], 2) if land.get("size", 0) > 0 else 0
+            
+            # Get owner info
+            owner = await db.users.find_one({"user_id": land.get("owner_id")}, {"_id": 0, "name": 1, "rating_average": 1})
+            if owner:
+                land["owner_name"] = owner.get("name")
+                land["owner_rating"] = owner.get("rating_average")
+            
+            # Get verification count
+            land["verification_count"] = len(land.get("verifications", []))
+            
+            lands.append(land)
+    
+    if len(lands) < 2:
+        raise HTTPException(status_code=400, detail="Terrains non trouvés")
+    
+    # Calculate comparison metrics
+    prices = [l["price"] for l in lands]
+    sizes = [l["size"] for l in lands]
+    prices_per_m2 = [l["price_per_m2"] for l in lands]
+    
+    comparison = {
+        "lands": lands,
+        "metrics": {
+            "price": {
+                "min": min(prices),
+                "max": max(prices),
+                "avg": round(sum(prices) / len(prices), 2)
+            },
+            "size": {
+                "min": min(sizes),
+                "max": max(sizes),
+                "avg": round(sum(sizes) / len(sizes), 2)
+            },
+            "price_per_m2": {
+                "min": min(prices_per_m2),
+                "max": max(prices_per_m2),
+                "avg": round(sum(prices_per_m2) / len(prices_per_m2), 2)
+            }
+        },
+        "best_value": {
+            "cheapest": land_ids[prices.index(min(prices))],
+            "largest": land_ids[sizes.index(max(sizes))],
+            "best_price_per_m2": land_ids[prices_per_m2.index(min(prices_per_m2))]
+        }
+    }
+    
+    return comparison
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
