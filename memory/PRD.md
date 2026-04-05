@@ -136,6 +136,29 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
   - Notification history and unread count
   - Mark as read functionality
 
+### Phase 7 - Advanced Features & Localization (April 5, 2024)
+- ✅ **Market Trends Dashboard**
+  - Price evolution over time by month at `/market-trends`
+  - Filters by region, land type, time period (6/12/24/36 months)
+  - Summary cards: Tendance, Transactions, Volume total
+  - Bar chart visualization of avg price per m² by month
+  - Trend direction indicator (up/down/stable)
+- ✅ **Land Comparison Feature**
+  - Compare up to 5 lands side-by-side at `/compare`
+  - Best value badges (Moins cher, Plus grand, Meilleur prix/m²)
+  - Metrics summary (min/max/avg for price, size, price per m²)
+  - Land selector modal with photos and details
+- ✅ **Saved Searches**
+  - Save search filters for reuse at `/saved-searches`
+  - Filter options: region, land_type, price range, size range, verified only
+  - Option to notify on new matches
+  - Execute saved searches to view matching lands
+- ✅ **Local Language Support**
+  - Pular (Fulfulde) - spoken in Fouta Djallon
+  - Maninka (Mandingo) - spoken in Upper Guinea
+  - Soussou (Susu) - spoken in Maritime Guinea/Conakry
+  - Language switcher in navbar with 5 options (FR, EN, Pular, Maninka, Susu)
+
 ## Test Credentials
 - **Admin**: admin@guinealand.com / admin123
 - **Demo Agent**: demo@guinealand.com (Google OAuth)
@@ -168,13 +191,15 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - [x] Offline support / PWA ✅
 - [x] Mapbox with user's token ✅
 
-### P2 - Nice to Have
+### P2 - Nice to Have (Completed ✅)
 - [x] WhatsApp integration for Guinea market ✅
-- [ ] Advanced search with saved filters
-- [ ] Land comparison feature
+- [x] Advanced search with saved filters ✅
+- [x] Land comparison feature ✅
+- [x] Market trends dashboard ✅
 
-### P3 - Future
-- [ ] Local languages: Pular (Adlam), Maninka, Soussou, N'Ko
+### P3 - Future (Completed ✅)
+- [x] Local languages: Pular, Maninka, Soussou ✅
+- [ ] N'Ko script support
 - [ ] Payment integration handled outside app (platform is intermediary only)
 
 ## Tech Stack
