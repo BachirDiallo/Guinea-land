@@ -117,6 +117,25 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
   - Optional email for anonymous users
   - Admin dashboard for feedback management
 
+### Phase 6 - Market Analysis & Notifications (April 5, 2024)
+- ✅ **Dual Pricing System**
+  - Reference prices (admin-set) - "Prix de référence" tab
+  - Market prices from actual transactions - "Ventes à proximité" tab
+  - Nearby transactions API (`/api/prices/nearby/{land_id}`)
+  - Distance-based search (configurable radius)
+  - Market statistics: min/avg/max from similar transactions
+- ✅ **Market Analysis API**
+  - `GET /api/prices/market-analysis` endpoint
+  - Filters by region, commune, land_type, time period
+  - Returns transaction count, avg/min/max/median price per m²
+  - Total volume calculation
+- ✅ **Push Notifications System**
+  - Notification bell in navbar for logged-in users
+  - Subscribe/unsubscribe endpoints
+  - Notification preferences (new listings, transactions, price alerts, verifications)
+  - Notification history and unread count
+  - Mark as read functionality
+
 ## Test Credentials
 - **Admin**: admin@guinealand.com / admin123
 - **Demo Agent**: demo@guinealand.com (Google OAuth)
@@ -140,22 +159,23 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - [x] Reliability Ratings/Reviews ✅
 - [x] Price per m² by Neighborhood ✅
 - [x] Suggestions & Feedback System ✅
+- [x] Push Notifications System ✅
+- [x] Dual Pricing (Reference + Market Prices) ✅
+- [x] Market Analysis from Actual Transactions ✅
 
 ### P1 - High Priority (Remaining)
-- [ ] Verify custom domain for email sending
 - [ ] SMS notifications (Twilio - user opted to wait)
-- [ ] Push notifications for mobile
 - [x] Offline support / PWA ✅
-- [ ] Fix Mapbox token for full map features
+- [x] Mapbox with user's token ✅
 
 ### P2 - Nice to Have
-- [ ] Payment integration (Orange Money, MTN Money)
+- [x] WhatsApp integration for Guinea market ✅
 - [ ] Advanced search with saved filters
 - [ ] Land comparison feature
-- [x] WhatsApp integration for Guinea market ✅
 
 ### P3 - Future
 - [ ] Local languages: Pular (Adlam), Maninka, Soussou, N'Ko
+- [ ] Payment integration handled outside app (platform is intermediary only)
 
 ## Tech Stack
 - Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, Resend, ReportLab
