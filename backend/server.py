@@ -2439,6 +2439,301 @@ async def get_market_trends(
     }
 
 
+@api_router.get("/market/regional-stats")
+async def get_regional_market_stats():
+    """Get market statistics grouped by region for map visualization"""
+    # Define Guinea regions with centers
+    guinea_regions = [
+        {"code": "conakry", "name": "Conakry", "center": {"lng": -13.6785, "lat": 9.6412}},
+        {"code": "kindia", "name": "Kindia", "center": {"lng": -12.8667, "lat": 10.0667}},
+        {"code": "boke", "name": "Boké", "center": {"lng": -14.3, "lat": 10.9333}},
+        {"code": "mamou", "name": "Mamou", "center": {"lng": -12.0833, "lat": 10.3833}},
+        {"code": "labe", "name": "Labé", "center": {"lng": -12.2833, "lat": 11.3167}},
+        {"code": "faranah", "name": "Faranah", "center": {"lng": -10.7333, "lat": 10.0333}},
+        {"code": "kankan", "name": "Kankan", "center": {"lng": -9.3, "lat": 10.3833}},
+        {"code": "nzerekore", "name": "N'Zérékoré", "center": {"lng": -8.8167, "lat": 7.7667}}
+    ]
+    
+    # Get all regions data
+    regions_data = []
+    
+    for region_info in guinea_regions:
+        region_name = region_info["name"]
+        
+        # Get lands in this region
+        lands = await db.lands.find(
+            {"region": region_name, "status": "available"},
+            {"_id": 0, "size": 1, "price": 1, "land_type": 1}
+        ).to_list(1000)
+        
+        # Get completed transactions in this region
+        all_transactions = await db.transactions.find(
+            {"status": "completed"},
+            {"_id": 0, "land_id": 1, "price": 1}
+        ).to_list(2000)
+        
+        region_transactions = []
+        for tx in all_transactions:
+            land = await db.lands.find_one(
+                {"land_id": tx.get("land_id"), "region": region_name},
+                {"_id": 0, "size": 1}
+            )
+            if land:
+                region_transactions.append({
+                    "price": tx.get("price", 0),
+                    "size": land.get("size", 1)
+                })
+        
+        # Calculate statistics
+        total_lands = len(lands)
+        total_transactions = len(region_transactions)
+        
+        if region_transactions:
+            prices_per_m2 = [tx["price"] / tx["size"] for tx in region_transactions if tx["size"] > 0]
+            avg_price_per_m2 = sum(prices_per_m2) / len(prices_per_m2) if prices_per_m2 else 0
+            total_volume = sum(tx["price"] for tx in region_transactions)
+        else:
+            avg_price_per_m2 = 0
+            total_volume = 0
+        
+        # Land type breakdown
+        land_types = {"residential": 0, "commercial": 0, "agricultural": 0}
+        for land in lands:
+            lt = land.get("land_type", "residential")
+            if lt in land_types:
+                land_types[lt] += 1
+        
+        regions_data.append({
+            "region": region_name,
+            "code": region_info["code"],
+            "center": region_info["center"],
+            "total_lands": total_lands,
+            "total_transactions": total_transactions,
+            "avg_price_per_m2": round(avg_price_per_m2, 2),
+            "total_volume": total_volume,
+            "land_types": land_types
+        })
+    
+    return {
+        "regions": regions_data,
+        "generated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@api_router.get("/market/top-sellers")
+async def get_top_sellers(
+    region: Optional[str] = None,
+    limit: int = Query(default=10, le=50)
+):
+    """Get top rated sellers and agents"""
+    # Get all users with seller or agent role
+    query = {"role": {"$in": ["seller", "agent"]}}
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(500)
+    
+    sellers_data = []
+    
+    for user in users:
+        user_id = user.get("user_id")
+        
+        # Get completed transactions where user is seller
+        seller_transactions = await db.transactions.find(
+            {"seller_id": user_id, "status": "completed"},
+            {"_id": 0, "price": 1, "land_id": 1}
+        ).to_list(100)
+        
+        # Filter by region if specified
+        if region:
+            filtered_tx = []
+            for tx in seller_transactions:
+                land = await db.lands.find_one(
+                    {"land_id": tx.get("land_id"), "region": region},
+                    {"_id": 0}
+                )
+                if land:
+                    filtered_tx.append(tx)
+            seller_transactions = filtered_tx
+        
+        # Get ratings
+        reviews = await db.reviews.find(
+            {"reviewed_user_id": user_id},
+            {"_id": 0, "rating": 1}
+        ).to_list(100)
+        
+        avg_rating = sum(r.get("rating", 0) for r in reviews) / len(reviews) if reviews else 0
+        
+        # Get active listings
+        active_lands = await db.lands.count_documents({
+            "owner_id": user_id,
+            "status": "available"
+        })
+        
+        if seller_transactions or reviews:
+            sellers_data.append({
+                "user_id": user_id,
+                "name": user.get("name", "Inconnu"),
+                "role": user.get("role"),
+                "phone": user.get("phone"),
+                "verified": user.get("verified", False),
+                "verified_by": user.get("verified_by"),
+                "total_sales": len(seller_transactions),
+                "total_volume": sum(tx.get("price", 0) for tx in seller_transactions),
+                "avg_rating": round(avg_rating, 1),
+                "review_count": len(reviews),
+                "active_listings": active_lands,
+                "created_at": user.get("created_at")
+            })
+    
+    # Sort by total sales and rating
+    sellers_data.sort(key=lambda x: (x["total_sales"], x["avg_rating"]), reverse=True)
+    
+    return {
+        "top_sellers": sellers_data[:limit],
+        "region_filter": region,
+        "total_found": len(sellers_data)
+    }
+
+
+@api_router.get("/market/officials")
+async def get_verified_officials(
+    region: Optional[str] = None
+):
+    """Get verified officials (verified users with authority)"""
+    query = {"verified": True}
+    
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(200)
+    
+    officials = []
+    
+    for user in users:
+        user_id = user.get("user_id")
+        
+        # Get their verified lands count
+        verified_lands = await db.lands.count_documents({
+            "verification_info.verified_by_user_id": user_id
+        })
+        
+        # Get their active listings if seller/agent
+        active_listings = 0
+        if user.get("role") in ["seller", "agent"]:
+            if region:
+                active_listings = await db.lands.count_documents({
+                    "owner_id": user_id,
+                    "region": region,
+                    "status": "available"
+                })
+            else:
+                active_listings = await db.lands.count_documents({
+                    "owner_id": user_id,
+                    "status": "available"
+                })
+        
+        # Get transactions
+        tx_count = await db.transactions.count_documents({
+            "$or": [{"seller_id": user_id}, {"buyer_id": user_id}],
+            "status": "completed"
+        })
+        
+        officials.append({
+            "user_id": user_id,
+            "name": user.get("name", "Inconnu"),
+            "role": user.get("role"),
+            "phone": user.get("phone"),
+            "email": user.get("email"),
+            "verified": True,
+            "verified_by": user.get("verified_by"),
+            "verification_level": user.get("verification_level", "standard"),
+            "verified_lands_count": verified_lands,
+            "active_listings": active_listings,
+            "transaction_count": tx_count,
+            "created_at": user.get("created_at")
+        })
+    
+    # Sort by verification level and activity
+    level_order = {"gouverneur": 0, "prefet": 1, "maire": 2, "chef_secteur": 3, "chef_quartier": 4, "chef_village": 5, "standard": 6}
+    officials.sort(key=lambda x: (level_order.get(x.get("verification_level", "standard"), 6), -x.get("verified_lands_count", 0)))
+    
+    return {
+        "officials": officials,
+        "total": len(officials)
+    }
+
+
+@api_router.get("/market/commune-stats/{region}")
+async def get_commune_stats(region: str):
+    """Get market statistics for all communes in a region"""
+    # Get all lands in this region
+    lands = await db.lands.find(
+        {"region": region},
+        {"_id": 0, "commune": 1, "size": 1, "price": 1, "land_type": 1, "status": 1}
+    ).to_list(1000)
+    
+    # Group by commune
+    commune_data = {}
+    
+    for land in lands:
+        commune = land.get("commune", "Autre")
+        if commune not in commune_data:
+            commune_data[commune] = {
+                "lands": [],
+                "available": 0
+            }
+        commune_data[commune]["lands"].append(land)
+        if land.get("status") == "available":
+            commune_data[commune]["available"] += 1
+    
+    # Get transactions for the region
+    all_transactions = await db.transactions.find(
+        {"status": "completed"},
+        {"_id": 0, "land_id": 1, "price": 1}
+    ).to_list(2000)
+    
+    # Match transactions to communes
+    for tx in all_transactions:
+        land = await db.lands.find_one(
+            {"land_id": tx.get("land_id"), "region": region},
+            {"_id": 0, "commune": 1, "size": 1}
+        )
+        if land:
+            commune = land.get("commune", "Autre")
+            if commune in commune_data:
+                if "transactions" not in commune_data[commune]:
+                    commune_data[commune]["transactions"] = []
+                commune_data[commune]["transactions"].append({
+                    "price": tx.get("price", 0),
+                    "size": land.get("size", 1)
+                })
+    
+    # Calculate stats per commune
+    result = []
+    for commune, data in commune_data.items():
+        transactions = data.get("transactions", [])
+        
+        if transactions:
+            prices_per_m2 = [t["price"] / t["size"] for t in transactions if t["size"] > 0]
+            avg_price = sum(prices_per_m2) / len(prices_per_m2) if prices_per_m2 else 0
+            total_volume = sum(t["price"] for t in transactions)
+        else:
+            avg_price = 0
+            total_volume = 0
+        
+        result.append({
+            "commune": commune,
+            "total_lands": len(data["lands"]),
+            "available_lands": data["available"],
+            "total_transactions": len(transactions),
+            "avg_price_per_m2": round(avg_price, 2),
+            "total_volume": total_volume
+        })
+    
+    # Sort by transaction count
+    result.sort(key=lambda x: x["total_transactions"], reverse=True)
+    
+    return {
+        "region": region,
+        "communes": result
+    }
+
+
 # ==================== SAVED SEARCHES ====================
 
 @api_router.post("/searches/save")

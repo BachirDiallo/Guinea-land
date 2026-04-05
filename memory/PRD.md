@@ -195,6 +195,15 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
   - Toggle between List view and Map view
   - Map shows radius circle + markers for nearby transactions
   - Click markers to see details + navigate to land
+- ✅ **Enhanced Market Trends Dashboard**
+  - Interactive map to select zones/regions
+  - Click region to see detailed statistics (terrains, transactions, price/m²)
+  - Communes breakdown within each region
+  - Price evolution chart with bar visualization
+  - Top Sellers leaderboard (by sales count and volume)
+  - Verified Officials directory
+  - Region filters for all data
+  - API endpoints: `/market/regional-stats`, `/market/top-sellers`, `/market/officials`, `/market/commune-stats/{region}`
   - GET `/api/zone-alerts` - List user's active subscriptions
   - PUT `/api/zone-alerts/{id}` - Toggle active, update filters
   - DELETE `/api/zone-alerts/{id}` - Remove subscription
