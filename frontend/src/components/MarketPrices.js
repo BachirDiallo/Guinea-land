@@ -1,17 +1,47 @@
-import { useState, useEffect } from 'react';
-import { MapPin, ArrowUp, ArrowDown, Minus, Buildings, Calendar } from '@phosphor-icons/react';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Map, { Marker, Source, Layer, Popup } from 'react-map-gl/mapbox';
+import { 
+  MapPin, 
+  ArrowUp, 
+  ArrowDown, 
+  Minus, 
+  Buildings, 
+  Sliders,
+  MapTrifold,
+  ListBullets,
+  CaretRight,
+  Circle
+} from '@phosphor-icons/react';
+import { Button } from './ui/button';
+import { Slider } from './ui/slider';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 
-// Enhanced Price Comparison with Nearby Transactions
-export const EnhancedPriceComparison = ({ landId }) => {
+// Enhanced Price Comparison with Nearby Transactions, Radius Selector & Map View
+export const EnhancedPriceComparison = ({ landId, landLocation }) => {
+  const navigate = useNavigate();
   const [comparison, setComparison] = useState(null);
   const [nearbyPrices, setNearbyPrices] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('reference'); // 'reference' or 'market'
+  const [activeTab, setActiveTab] = useState('reference');
+  const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
+  const [radius, setRadius] = useState(5);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const mapRef = useRef(null);
 
+  // Fetch data when radius changes
   useEffect(() => {
     const fetchPriceData = async () => {
+      setLoading(true);
       try {
         // Fetch reference prices
         const refRes = await fetch(`${API}/prices/compare/${landId}`);
@@ -19,8 +49,8 @@ export const EnhancedPriceComparison = ({ landId }) => {
           setComparison(await refRes.json());
         }
         
-        // Fetch nearby transaction prices
-        const nearbyRes = await fetch(`${API}/prices/nearby/${landId}?radius_km=10`);
+        // Fetch nearby transaction prices with selected radius
+        const nearbyRes = await fetch(`${API}/prices/nearby/${landId}?radius_km=${radius}`);
         if (nearbyRes.ok) {
           setNearbyPrices(await nearbyRes.json());
         }
@@ -34,7 +64,7 @@ export const EnhancedPriceComparison = ({ landId }) => {
     if (landId) {
       fetchPriceData();
     }
-  }, [landId]);
+  }, [landId, radius]);
 
   if (loading) {
     return (
@@ -70,6 +100,30 @@ export const EnhancedPriceComparison = ({ landId }) => {
     below_market: ArrowDown
   };
 
+  // Generate circle polygon for radius visualization
+  const generateCircle = (center, radiusKm, points = 64) => {
+    const coords = [];
+    const distanceX = radiusKm / (111.32 * Math.cos(center[1] * Math.PI / 180));
+    const distanceY = radiusKm / 110.574;
+
+    for (let i = 0; i < points; i++) {
+      const theta = (i / points) * (2 * Math.PI);
+      const x = distanceX * Math.cos(theta);
+      const y = distanceY * Math.sin(theta);
+      coords.push([center[0] + x, center[1] + y]);
+    }
+    coords.push(coords[0]); // Close the circle
+    return coords;
+  };
+
+  const circleGeoJson = landLocation ? {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [generateCircle([landLocation.lng, landLocation.lat], radius)]
+    }
+  } : null;
+
   return (
     <div className="bg-card border border-border" data-testid="enhanced-price-comparison">
       {/* Tab Headers */}
@@ -82,6 +136,7 @@ export const EnhancedPriceComparison = ({ landId }) => {
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary/50 hover:bg-secondary'
             }`}
+            data-testid="tab-reference"
           >
             Prix de référence
           </button>
@@ -94,6 +149,7 @@ export const EnhancedPriceComparison = ({ landId }) => {
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary/50 hover:bg-secondary'
             }`}
+            data-testid="tab-market"
           >
             Ventes à proximité ({nearbyPrices.total_found})
           </button>
@@ -142,12 +198,71 @@ export const EnhancedPriceComparison = ({ landId }) => {
           </div>
         )}
 
-        {/* Market Prices Tab - Nearby Transactions */}
+        {/* Market Prices Tab - Nearby Transactions with Radius & Map */}
         {activeTab === 'market' && hasMarketData && (
           <div className="space-y-4">
+            {/* Radius Selector */}
+            <div className="bg-secondary/30 p-3 rounded" data-testid="radius-selector">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Circle className="w-4 h-4" weight="fill" />
+                  Rayon de recherche
+                </div>
+                <Select value={radius.toString()} onValueChange={(v) => setRadius(parseInt(v))}>
+                  <SelectTrigger className="w-24 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 km</SelectItem>
+                    <SelectItem value="2">2 km</SelectItem>
+                    <SelectItem value="5">5 km</SelectItem>
+                    <SelectItem value="10">10 km</SelectItem>
+                    <SelectItem value="20">20 km</SelectItem>
+                    <SelectItem value="50">50 km</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Slider
+                value={[radius]}
+                onValueChange={([v]) => setRadius(v)}
+                min={1}
+                max={50}
+                step={1}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>1 km</span>
+                <span>50 km</span>
+              </div>
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('list')}
+                className="flex-1 gap-1"
+                data-testid="view-list-btn"
+              >
+                <ListBullets className="w-4 h-4" />
+                Liste
+              </Button>
+              <Button
+                variant={viewMode === 'map' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('map')}
+                className="flex-1 gap-1"
+                data-testid="view-map-btn"
+              >
+                <MapTrifold className="w-4 h-4" />
+                Carte
+              </Button>
+            </div>
+
             {/* Market Statistics */}
             {nearbyPrices.market_statistics && (
-              <div className="bg-secondary/30 p-3 rounded">
+              <div className="bg-primary/5 p-3 rounded border border-primary/20">
                 <div className="text-sm font-medium mb-2">Statistiques du marché local</div>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div>
@@ -164,41 +279,159 @@ export const EnhancedPriceComparison = ({ landId }) => {
                   </div>
                 </div>
                 <div className="text-xs text-center text-muted-foreground mt-2">
-                  Basé sur {nearbyPrices.market_statistics.count} transaction(s) similaire(s)
+                  Basé sur {nearbyPrices.market_statistics.count} transaction(s) dans un rayon de {radius} km
                 </div>
               </div>
             )}
 
-            {/* Nearby Transactions List */}
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Terrains vendus à proximité</div>
-              {nearbyPrices.nearby_transactions?.slice(0, 5).map((tx, idx) => (
-                <div 
-                  key={tx.transaction_id || idx}
-                  className="flex items-center justify-between p-2 bg-secondary/20 rounded text-sm"
+            {/* Map View */}
+            {viewMode === 'map' && landLocation && MAPBOX_TOKEN && (
+              <div className="h-64 rounded overflow-hidden border border-border" data-testid="nearby-map">
+                <Map
+                  ref={mapRef}
+                  initialViewState={{
+                    longitude: landLocation.lng,
+                    latitude: landLocation.lat,
+                    zoom: radius > 20 ? 9 : radius > 10 ? 10 : radius > 5 ? 11 : 12
+                  }}
+                  style={{ width: '100%', height: '100%' }}
+                  mapStyle="mapbox://styles/mapbox/streets-v12"
+                  mapboxAccessToken={MAPBOX_TOKEN}
                 >
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-muted-foreground" weight="fill" />
-                    <div>
-                      <div className="font-medium line-clamp-1">{tx.land_title}</div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2">
-                        <span>{tx.commune}</span>
-                        <span>•</span>
-                        <span>{tx.distance_km} km</span>
+                  {/* Radius Circle */}
+                  {circleGeoJson && (
+                    <Source type="geojson" data={circleGeoJson}>
+                      <Layer
+                        type="fill"
+                        paint={{
+                          'fill-color': '#133E26',
+                          'fill-opacity': 0.1
+                        }}
+                      />
+                      <Layer
+                        type="line"
+                        paint={{
+                          'line-color': '#133E26',
+                          'line-width': 2,
+                          'line-dasharray': [2, 2]
+                        }}
+                      />
+                    </Source>
+                  )}
+
+                  {/* Current Land Marker (Star) */}
+                  <Marker
+                    longitude={landLocation.lng}
+                    latitude={landLocation.lat}
+                  >
+                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center border-2 border-white shadow-lg">
+                      <MapPin className="w-5 h-5 text-white" weight="fill" />
+                    </div>
+                  </Marker>
+
+                  {/* Nearby Transactions Markers */}
+                  {nearbyPrices.nearby_transactions?.map((tx, idx) => (
+                    tx.latitude && tx.longitude && (
+                      <Marker
+                        key={tx.transaction_id || idx}
+                        longitude={tx.longitude}
+                        latitude={tx.latitude}
+                        onClick={(e) => {
+                          e.originalEvent.stopPropagation();
+                          setSelectedTransaction(tx);
+                        }}
+                      >
+                        <div 
+                          className="w-6 h-6 bg-primary rounded-full flex items-center justify-center border-2 border-white shadow cursor-pointer hover:scale-110 transition-transform"
+                          title={`${tx.price_per_m2?.toLocaleString()} GNF/m²`}
+                        >
+                          <span className="text-[8px] text-white font-bold">{idx + 1}</span>
+                        </div>
+                      </Marker>
+                    )
+                  ))}
+
+                  {/* Popup for selected transaction */}
+                  {selectedTransaction && selectedTransaction.latitude && (
+                    <Popup
+                      longitude={selectedTransaction.longitude}
+                      latitude={selectedTransaction.latitude}
+                      onClose={() => setSelectedTransaction(null)}
+                      closeButton={true}
+                      closeOnClick={false}
+                      anchor="bottom"
+                    >
+                      <div className="p-2 min-w-[180px]">
+                        <div className="font-bold text-sm line-clamp-1">{selectedTransaction.land_title}</div>
+                        <div className="text-xs text-gray-500">{selectedTransaction.commune}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <div className="text-gray-500">Prix/m²</div>
+                            <div className="font-bold text-accent">{selectedTransaction.price_per_m2?.toLocaleString()}</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Distance</div>
+                            <div className="font-bold">{selectedTransaction.distance_km} km</div>
+                          </div>
+                        </div>
+                        {selectedTransaction.land_id && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full mt-2 h-7 text-xs"
+                            onClick={() => navigate(`/lands/${selectedTransaction.land_id}`)}
+                          >
+                            Voir le terrain
+                            <CaretRight className="w-3 h-3 ml-1" />
+                          </Button>
+                        )}
+                      </div>
+                    </Popup>
+                  )}
+                </Map>
+              </div>
+            )}
+
+            {/* List View */}
+            {viewMode === 'list' && (
+              <div className="space-y-2" data-testid="nearby-list">
+                <div className="text-sm font-medium">Terrains vendus à proximité</div>
+                {nearbyPrices.nearby_transactions?.slice(0, 10).map((tx, idx) => (
+                  <div 
+                    key={tx.transaction_id || idx}
+                    className="flex items-center justify-between p-2 bg-secondary/20 rounded text-sm hover:bg-secondary/40 cursor-pointer transition-colors"
+                    onClick={() => tx.land_id && navigate(`/lands/${tx.land_id}`)}
+                    data-testid={`nearby-item-${idx}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-[10px] text-white font-bold">{idx + 1}</span>
+                      </div>
+                      <div>
+                        <div className="font-medium line-clamp-1">{tx.land_title}</div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-2">
+                          <span>{tx.commune}</span>
+                          <span>•</span>
+                          <span>{tx.distance_km} km</span>
+                          <span>•</span>
+                          <span>{tx.size?.toLocaleString()} m²</span>
+                        </div>
                       </div>
                     </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-bold text-accent">{tx.price_per_m2?.toLocaleString()}</div>
+                      <div className="text-xs text-muted-foreground">GNF/m²</div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold text-accent">{tx.price_per_m2?.toLocaleString()} GNF/m²</div>
-                    <div className="text-xs text-muted-foreground">{tx.size?.toLocaleString()} m²</div>
+                ))}
+                
+                {nearbyPrices.nearby_transactions?.length > 10 && (
+                  <div className="text-xs text-center text-muted-foreground">
+                    +{nearbyPrices.nearby_transactions.length - 10} autres terrains
                   </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="text-xs text-muted-foreground text-center">
-              Rayon de recherche: {nearbyPrices.search_radius_km} km
-            </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

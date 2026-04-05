@@ -222,7 +222,10 @@ export default function LandDetail() {
             )}
 
             {/* Price Comparison - Enhanced with nearby transactions */}
-            <EnhancedPriceComparison landId={landId} />
+            <EnhancedPriceComparison 
+              landId={landId} 
+              landLocation={land.latitude && land.longitude ? { lat: land.latitude, lng: land.longitude } : null}
+            />
 
             {/* Key Info */}
             <div className="grid grid-cols-2 gap-4">

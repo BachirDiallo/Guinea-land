@@ -190,6 +190,23 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
   - Guinea phone number formatting (+224)
   - GET `/api/sms/status` - Check if SMS is configured
   - POST `/api/sms/test` - Admin SMS testing
+- ✅ **Enhanced Nearby Comparison**
+  - Adjustable radius selector (1km to 50km) with slider + dropdown
+  - Toggle between List view and Map view
+  - Map shows radius circle + markers for nearby transactions
+  - Click markers to see details + navigate to land
+  - GET `/api/zone-alerts` - List user's active subscriptions
+  - PUT `/api/zone-alerts/{id}` - Toggle active, update filters
+  - DELETE `/api/zone-alerts/{id}` - Remove subscription
+  - Automatic email notifications when new land matches criteria
+  - SMS notifications ready (when Twilio configured)
+  - `/zone-alerts` page with subscription management
+  - Quick buttons for popular zones (Ratoma, Kaloum, Matam, Kindia, Labé)
+- ✅ **SMS Notifications Infrastructure**
+  - Twilio integration scaffolding complete
+  - Guinea phone number formatting (+224)
+  - GET `/api/sms/status` - Check if SMS is configured
+  - POST `/api/sms/test` - Admin SMS testing
   - Zone alert triggers for SMS
 
 ## Prioritized Backlog
