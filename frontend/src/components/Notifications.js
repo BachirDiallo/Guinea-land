@@ -368,7 +368,7 @@ export const NotificationSettings = () => {
             {[
               { key: 'new_listings', label: 'Nouveaux terrains', icon: MapPin },
               { key: 'transaction_updates', label: 'Mises à jour transactions', icon: Receipt },
-              { key: 'price_alerts', label: 'Alertes de prix', icon: TrendingUp },
+              { key: 'price_alerts', label: 'Alertes de prix', icon: TrendUp },
               { key: 'verifications', label: 'Vérifications', icon: ShieldCheck }
             ].map(({ key, label, icon: Icon }) => (
               <label
