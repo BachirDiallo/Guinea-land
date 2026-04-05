@@ -2,60 +2,29 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { WifiSlash, Download, X, CheckCircle } from '@phosphor-icons/react';
 
-// Offline Status Indicator - Only shows when actually offline
+// Offline Status Indicator - Disabled in preview/development
 export const OfflineIndicator = () => {
-  const [isOnline, setIsOnline] = useState(true); // Default to online
+  // Disable offline indicator in preview environment
+  const isPreview = window.location.hostname.includes('preview') || 
+                    window.location.hostname.includes('localhost') ||
+                    window.location.hostname.includes('emergentagent');
+  
+  const [isOnline, setIsOnline] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
-  const [wasOffline, setWasOffline] = useState(false);
 
   useEffect(() => {
-    // More robust online check - verify with actual network request
-    const checkOnlineStatus = async () => {
-      try {
-        // Try to fetch a tiny resource to verify connectivity
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
-        await fetch('/api/', { 
-          method: 'HEAD',
-          cache: 'no-store',
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
-        // We're online
-        if (!isOnline) {
-          setIsOnline(true);
-          if (wasOffline) {
-            setShowBanner(true);
-            setTimeout(() => setShowBanner(false), 3000);
-          }
-        }
-      } catch {
-        // We're offline
-        if (isOnline && navigator.onLine === false) {
-          setIsOnline(false);
-          setShowBanner(true);
-          setWasOffline(true);
-        }
-      }
-    };
-
-    // Initial check only if browser reports offline
-    if (!navigator.onLine) {
-      setIsOnline(false);
-      setShowBanner(true);
-      setWasOffline(true);
-    }
+    // Don't track offline status in preview
+    if (isPreview) return;
 
     const handleOnline = () => {
-      checkOnlineStatus();
+      setIsOnline(true);
+      setShowBanner(true);
+      setTimeout(() => setShowBanner(false), 3000);
     };
     
     const handleOffline = () => {
       setIsOnline(false);
       setShowBanner(true);
-      setWasOffline(true);
     };
 
     window.addEventListener('online', handleOnline);
@@ -65,9 +34,10 @@ export const OfflineIndicator = () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [isOnline, wasOffline]);
+  }, [isPreview]);
 
-  // Don't show anything if we're online and haven't been offline
+  // Never show in preview environment
+  if (isPreview) return null;
   if (!showBanner) return null;
 
   return (

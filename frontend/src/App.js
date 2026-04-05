@@ -30,8 +30,26 @@ import LandComparison from './pages/LandComparison';
 import SavedSearches from './pages/SavedSearches';
 import ZoneAlertsPage from './pages/ZoneAlerts';
 
-// Register Service Worker
+// Register Service Worker - only in production, not in preview
 const registerServiceWorker = async () => {
+  // Skip service worker in preview/development environments
+  const isPreview = window.location.hostname.includes('preview') || 
+                    window.location.hostname.includes('localhost') ||
+                    window.location.hostname.includes('emergentagent');
+  
+  if (isPreview) {
+    console.log('Service Worker disabled in preview environment');
+    // Unregister any existing service workers in preview
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        await registration.unregister();
+        console.log('Unregistered service worker for preview');
+      }
+    }
+    return;
+  }
+  
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {

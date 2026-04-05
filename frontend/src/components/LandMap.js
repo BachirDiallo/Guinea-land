@@ -39,9 +39,16 @@ export const LandMap = ({
   const mapRef = useRef(null);
   const [popupInfo, setPopupInfo] = useState(null);
   const [viewState, setViewState] = useState(GUINEA_CENTER);
-  const [isOffline, setIsOffline] = useState(false); // Default to online
+  const [isOffline, setIsOffline] = useState(false);
   const [isMobile] = useState(isTouchDevice());
   const [mapStyle, setMapStyle] = useState('streets');
+  
+  // Check if we're in preview environment
+  const isPreview = typeof window !== 'undefined' && (
+    window.location.hostname.includes('preview') || 
+    window.location.hostname.includes('localhost') ||
+    window.location.hostname.includes('emergentagent')
+  );
 
   // Toggle map style
   const toggleMapStyle = () => {
@@ -51,18 +58,13 @@ export const LandMap = ({
     setMapStyle(styles[nextIndex]);
   };
 
-  // Track online/offline status - only show when actually offline
+  // Track online/offline status - disabled in preview environment
   useEffect(() => {
-    // Only set offline if browser truly reports offline
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => {
-      if (!navigator.onLine) {
-        setIsOffline(true);
-      }
-    };
+    // Don't track offline in preview
+    if (isPreview) return;
     
-    // Initial state - default to online unless browser says offline
-    setIsOffline(!navigator.onLine);
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
     
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -71,7 +73,7 @@ export const LandMap = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [isPreview]);
 
   // Fly to selected land
   useEffect(() => {
@@ -149,8 +151,8 @@ export const LandMap = ({
 
   return (
     <div style={{ height, width: '100%' }} className="relative">
-      {/* Offline indicator for map */}
-      {isOffline && (
+      {/* Offline indicator for map - hidden in preview */}
+      {isOffline && !isPreview && (
         <div 
           className="absolute top-2 left-2 right-2 z-10 bg-yellow-500 text-black text-xs px-3 py-2 rounded-lg flex items-center gap-2 shadow-lg"
           data-testid="map-offline-indicator"
