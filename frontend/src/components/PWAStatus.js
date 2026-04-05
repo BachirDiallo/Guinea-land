@@ -2,21 +2,60 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { WifiSlash, Download, X, CheckCircle } from '@phosphor-icons/react';
 
-// Offline Status Indicator
+// Offline Status Indicator - Only shows when actually offline
 export const OfflineIndicator = () => {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [showBanner, setShowBanner] = useState(!navigator.onLine);
+  const [isOnline, setIsOnline] = useState(true); // Default to online
+  const [showBanner, setShowBanner] = useState(false);
+  const [wasOffline, setWasOffline] = useState(false);
 
   useEffect(() => {
+    // More robust online check - verify with actual network request
+    const checkOnlineStatus = async () => {
+      try {
+        // Try to fetch a tiny resource to verify connectivity
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        await fetch('/api/', { 
+          method: 'HEAD',
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        // We're online
+        if (!isOnline) {
+          setIsOnline(true);
+          if (wasOffline) {
+            setShowBanner(true);
+            setTimeout(() => setShowBanner(false), 3000);
+          }
+        }
+      } catch {
+        // We're offline
+        if (isOnline && navigator.onLine === false) {
+          setIsOnline(false);
+          setShowBanner(true);
+          setWasOffline(true);
+        }
+      }
+    };
+
+    // Initial check only if browser reports offline
+    if (!navigator.onLine) {
+      setIsOnline(false);
+      setShowBanner(true);
+      setWasOffline(true);
+    }
+
     const handleOnline = () => {
-      setIsOnline(true);
-      // Show success briefly then hide
-      setTimeout(() => setShowBanner(false), 3000);
+      checkOnlineStatus();
     };
     
     const handleOffline = () => {
       setIsOnline(false);
       setShowBanner(true);
+      setWasOffline(true);
     };
 
     window.addEventListener('online', handleOnline);
@@ -26,8 +65,9 @@ export const OfflineIndicator = () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [isOnline, wasOffline]);
 
+  // Don't show anything if we're online and haven't been offline
   if (!showBanner) return null;
 
   return (

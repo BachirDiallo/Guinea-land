@@ -39,7 +39,7 @@ export const LandMap = ({
   const mapRef = useRef(null);
   const [popupInfo, setPopupInfo] = useState(null);
   const [viewState, setViewState] = useState(GUINEA_CENTER);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isOffline, setIsOffline] = useState(false); // Default to online
   const [isMobile] = useState(isTouchDevice());
   const [mapStyle, setMapStyle] = useState('streets');
 
@@ -51,10 +51,18 @@ export const LandMap = ({
     setMapStyle(styles[nextIndex]);
   };
 
-  // Track online/offline status
+  // Track online/offline status - only show when actually offline
   useEffect(() => {
+    // Only set offline if browser truly reports offline
     const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      if (!navigator.onLine) {
+        setIsOffline(true);
+      }
+    };
+    
+    // Initial state - default to online unless browser says offline
+    setIsOffline(!navigator.onLine);
     
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
