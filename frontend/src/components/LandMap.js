@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Map, Marker, Popup, Source, Layer, NavigationControl, GeolocateControl, ScaleControl } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MapPin, Circle, WifiSlash } from '@phosphor-icons/react';
+import { MapPin, Circle, WifiSlash, MapTrifold } from '@phosphor-icons/react';
 
-// Mapbox public demo token - works for development/demo purposes
+// Mapbox token from environment or fallback
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1IjoiZXhhbXBsZXMiLCJhIjoiY2p0MG01MXRqMW45cjQzb2R6b2ptc3J4MSJ9.gUWqjLwOuV8gOmRSbVxlrg';
 
 // Guinea center coordinates
@@ -11,6 +11,13 @@ const GUINEA_CENTER = {
   longitude: -10.9408,
   latitude: 9.9456,
   zoom: 7
+};
+
+// Map styles available
+const MAP_STYLES = {
+  streets: 'mapbox://styles/mapbox/streets-v12',
+  satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+  outdoors: 'mapbox://styles/mapbox/outdoors-v12'
 };
 
 // Check if device is mobile/touch
@@ -34,6 +41,15 @@ export const LandMap = ({
   const [viewState, setViewState] = useState(GUINEA_CENTER);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isMobile] = useState(isTouchDevice());
+  const [mapStyle, setMapStyle] = useState('streets');
+
+  // Toggle map style
+  const toggleMapStyle = () => {
+    const styles = ['streets', 'satellite', 'outdoors'];
+    const currentIndex = styles.indexOf(mapStyle);
+    const nextIndex = (currentIndex + 1) % styles.length;
+    setMapStyle(styles[nextIndex]);
+  };
 
   // Track online/offline status
   useEffect(() => {
@@ -136,12 +152,22 @@ export const LandMap = ({
         </div>
       )}
       
+      {/* Map Style Toggle Button */}
+      <button
+        onClick={toggleMapStyle}
+        className="absolute top-2 right-14 z-10 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg p-2 shadow-lg"
+        title={`Vue: ${mapStyle === 'streets' ? 'Rues' : mapStyle === 'satellite' ? 'Satellite' : 'Terrain'}`}
+        data-testid="map-style-toggle"
+      >
+        <MapTrifold className="w-5 h-5 text-gray-700" weight="fill" />
+      </button>
+      
       <Map
         ref={mapRef}
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
         onClick={handleMapClick}
-        mapStyle="mapbox://styles/mapbox/streets-v12"
+        mapStyle={MAP_STYLES[mapStyle]}
         mapboxAccessToken={MAPBOX_TOKEN}
         style={{ width: '100%', height: '100%' }}
         cursor={clickMode ? 'crosshair' : 'grab'}
