@@ -24,6 +24,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm, mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+import qrcode
+from twilio.rest import Client as TwilioClient
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -49,6 +51,17 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
+
+# Twilio SMS Configuration
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
+twilio_client = None
+if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+    twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+# Frontend URL for QR codes
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://guinea-land-hub.preview.emergentagent.com")
 
 # MIME Types
 MIME_TYPES = {
@@ -929,6 +942,9 @@ async def create_land(land: LandCreate, request: Request):
     }
     
     await db.lands.insert_one(land_doc)
+    
+    # Trigger zone alerts for new land (non-blocking)
+    asyncio.create_task(trigger_zone_alerts_for_new_land(land_doc))
     
     return LandResponse(
         **land_doc,
@@ -2577,9 +2593,9 @@ async def compare_lands(request: Request):
         raise HTTPException(status_code=400, detail="Terrains non trouvés")
     
     # Calculate comparison metrics
-    prices = [l["price"] for l in lands]
-    sizes = [l["size"] for l in lands]
-    prices_per_m2 = [l["price_per_m2"] for l in lands]
+    prices = [land_item["price"] for land_item in lands]
+    sizes = [land_item["size"] for land_item in lands]
+    prices_per_m2 = [land_item["price_per_m2"] for land_item in lands]
     
     comparison = {
         "lands": lands,
@@ -2608,6 +2624,416 @@ async def compare_lands(request: Request):
     }
     
     return comparison
+
+
+# ==================== QR CODE GENERATION ====================
+
+@api_router.get("/lands/{land_id}/qrcode")
+async def get_land_qrcode(
+    land_id: str,
+    size: int = Query(default=256, ge=64, le=512)
+):
+    """Generate QR code for a land listing"""
+    # Verify land exists
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0, "title": 1})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Generate QR code URL
+    land_url = f"{FRONTEND_URL}/lands/{land_id}"
+    
+    # Create QR code
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=2
+    )
+    qr.add_data(land_url)
+    qr.make(fit=True)
+    
+    # Create image with Guinea Land Hub colors
+    img = qr.make_image(fill_color="#133E26", back_color="white")
+    
+    # Resize to requested size
+    img = img.resize((size, size))
+    
+    # Convert to bytes
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    
+    return StreamingResponse(
+        buffer,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="qr_land_{land_id}.png"'
+        }
+    )
+
+
+@api_router.get("/lands/{land_id}/qrcode/download")
+async def download_land_qrcode(
+    land_id: str,
+    size: int = Query(default=512, ge=64, le=1024),
+    include_info: bool = Query(default=True)
+):
+    """Download QR code with land info as a printable image"""
+    # Get land details
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Generate QR code
+    land_url = f"{FRONTEND_URL}/lands/{land_id}"
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=2
+    )
+    qr.add_data(land_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#133E26", back_color="white")
+    img = img.resize((size, size))
+    
+    if include_info:
+        # Create a larger canvas with text info
+        from PIL import Image, ImageDraw, ImageFont
+        
+        # Canvas with extra space for text
+        canvas_width = size + 40
+        canvas_height = size + 120
+        canvas = Image.new('RGB', (canvas_width, canvas_height), 'white')
+        
+        # Paste QR code
+        canvas.paste(img, (20, 20))
+        
+        # Add text
+        draw = ImageDraw.Draw(canvas)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+        except OSError:
+            font = ImageFont.load_default()
+            font_small = font
+        
+        # Title
+        title = land.get("title", "Terrain")[:35]
+        draw.text((20, size + 25), title, fill="#133E26", font=font)
+        
+        # Location
+        location = f"{land.get('commune', '')}, {land.get('region', '')}"[:40]
+        draw.text((20, size + 45), location, fill="#666666", font=font_small)
+        
+        # Price
+        price = f"{land.get('price', 0):,.0f} GNF"
+        draw.text((20, size + 65), price, fill="#D95A2B", font=font)
+        
+        # URL footer
+        draw.text((20, size + 90), "Guinea Land Hub", fill="#133E26", font=font_small)
+        
+        buffer = BytesIO()
+        canvas.save(buffer, format="PNG")
+    else:
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+    
+    buffer.seek(0)
+    
+    return StreamingResponse(
+        buffer,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="terrain_qr_{land_id}.png"'
+        }
+    )
+
+
+# ==================== ZONE ALERTS (Land Alerts by Zone) ====================
+
+class ZoneAlertCreate(BaseModel):
+    region: str
+    commune: Optional[str] = None
+    quartier: Optional[str] = None
+    land_types: List[str] = ["residential", "commercial", "agricultural"]
+    max_price: Optional[float] = None
+    min_size: Optional[float] = None
+    notify_email: bool = True
+    notify_sms: bool = False
+
+class ZoneAlertResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    alert_id: str
+    user_id: str
+    region: str
+    commune: Optional[str] = None
+    quartier: Optional[str] = None
+    land_types: List[str]
+    max_price: Optional[float] = None
+    min_size: Optional[float] = None
+    notify_email: bool
+    notify_sms: bool
+    is_active: bool
+    created_at: datetime
+    last_triggered: Optional[datetime] = None
+
+
+@api_router.post("/zone-alerts", response_model=ZoneAlertResponse)
+async def create_zone_alert(alert_data: ZoneAlertCreate, request: Request):
+    """Create a zone alert subscription"""
+    user = await get_current_user(request)
+    
+    alert_id = f"alert_{uuid.uuid4().hex[:12]}"
+    alert_doc = {
+        "alert_id": alert_id,
+        "user_id": user["user_id"],
+        "region": alert_data.region,
+        "commune": alert_data.commune,
+        "quartier": alert_data.quartier,
+        "land_types": alert_data.land_types,
+        "max_price": alert_data.max_price,
+        "min_size": alert_data.min_size,
+        "notify_email": alert_data.notify_email,
+        "notify_sms": alert_data.notify_sms,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc),
+        "last_triggered": None
+    }
+    
+    await db.zone_alerts.insert_one(alert_doc)
+    
+    return ZoneAlertResponse(**{k: v for k, v in alert_doc.items() if k != "_id"})
+
+
+@api_router.get("/zone-alerts", response_model=List[ZoneAlertResponse])
+async def get_zone_alerts(request: Request):
+    """Get user's zone alert subscriptions"""
+    user = await get_current_user(request)
+    
+    alerts = await db.zone_alerts.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).to_list(50)
+    
+    return [ZoneAlertResponse(**a) for a in alerts]
+
+
+@api_router.put("/zone-alerts/{alert_id}")
+async def update_zone_alert(alert_id: str, request: Request):
+    """Update a zone alert"""
+    user = await get_current_user(request)
+    body = await request.json()
+    
+    # Verify ownership
+    alert = await db.zone_alerts.find_one({"alert_id": alert_id, "user_id": user["user_id"]})
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alerte non trouvée")
+    
+    # Update allowed fields
+    update_data = {}
+    allowed = ["commune", "quartier", "land_types", "max_price", "min_size", "notify_email", "notify_sms", "is_active"]
+    for field in allowed:
+        if field in body:
+            update_data[field] = body[field]
+    
+    if update_data:
+        await db.zone_alerts.update_one(
+            {"alert_id": alert_id},
+            {"$set": update_data}
+        )
+    
+    return {"message": "Alerte mise à jour", "alert_id": alert_id}
+
+
+@api_router.delete("/zone-alerts/{alert_id}")
+async def delete_zone_alert(alert_id: str, request: Request):
+    """Delete a zone alert"""
+    user = await get_current_user(request)
+    
+    result = await db.zone_alerts.delete_one({
+        "alert_id": alert_id,
+        "user_id": user["user_id"]
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Alerte non trouvée")
+    
+    return {"message": "Alerte supprimée"}
+
+
+# ==================== SMS NOTIFICATIONS (Twilio) ====================
+
+async def send_sms_notification(phone: str, message: str) -> bool:
+    """Send SMS notification via Twilio"""
+    if not twilio_client or not TWILIO_PHONE_NUMBER:
+        logger.warning("Twilio not configured - SMS notifications disabled")
+        return False
+    
+    # Format Guinea phone number
+    formatted_phone = phone.strip().replace(" ", "")
+    if not formatted_phone.startswith("+"):
+        if formatted_phone.startswith("224"):
+            formatted_phone = "+" + formatted_phone
+        else:
+            formatted_phone = "+224" + formatted_phone
+    
+    try:
+        sms = twilio_client.messages.create(
+            body=message,
+            from_=TWILIO_PHONE_NUMBER,
+            to=formatted_phone
+        )
+        logger.info(f"SMS sent to {formatted_phone}, SID: {sms.sid}")
+        return True
+    except Exception as e:
+        logger.error(f"SMS send failed to {formatted_phone}: {e}")
+        return False
+
+
+async def trigger_zone_alerts_for_new_land(land: dict):
+    """Trigger zone alerts when a new land is created"""
+    # Find matching alerts
+    query = {
+        "region": land.get("region"),
+        "is_active": True
+    }
+    
+    matching_alerts = await db.zone_alerts.find(query, {"_id": 0}).to_list(100)
+    
+    for alert in matching_alerts:
+        # Check commune match
+        if alert.get("commune") and alert["commune"] != land.get("commune"):
+            continue
+        
+        # Check quartier match
+        if alert.get("quartier") and alert["quartier"] != land.get("quartier"):
+            continue
+        
+        # Check land type
+        if land.get("land_type") not in alert.get("land_types", []):
+            continue
+        
+        # Check price
+        if alert.get("max_price") and land.get("price", 0) > alert["max_price"]:
+            continue
+        
+        # Check size
+        if alert.get("min_size") and land.get("size", 0) < alert["min_size"]:
+            continue
+        
+        # Get user info
+        user = await db.users.find_one({"user_id": alert["user_id"]}, {"_id": 0})
+        if not user:
+            continue
+        
+        # Build notification
+        land_url = f"{FRONTEND_URL}/lands/{land.get('land_id')}"
+        message = f"🏠 Nouveau terrain à {land.get('commune', land.get('region'))}!\n\n{land.get('title')}\n{land.get('size', 0):,.0f} m² - {land.get('price', 0):,.0f} GNF\n\n{land_url}"
+        
+        # Send email notification
+        if alert.get("notify_email") and user.get("email"):
+            await send_zone_alert_email(user["email"], user.get("name", ""), land, land_url)
+        
+        # Send SMS notification
+        if alert.get("notify_sms") and user.get("phone"):
+            await send_sms_notification(user["phone"], message[:160])
+        
+        # Update last triggered
+        await db.zone_alerts.update_one(
+            {"alert_id": alert["alert_id"]},
+            {"$set": {"last_triggered": datetime.now(timezone.utc)}}
+        )
+        
+        # Create in-app notification
+        await send_push_notification(
+            user_id=alert["user_id"],
+            notification_type="zone_alert",
+            title="Nouveau terrain dans votre zone",
+            body=f"{land.get('title')} - {land.get('price', 0):,.0f} GNF",
+            data={"land_id": land.get("land_id")}
+        )
+
+
+async def send_zone_alert_email(email: str, name: str, land: dict, land_url: str):
+    """Send zone alert email notification"""
+    if not RESEND_API_KEY:
+        return
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family: Arial, sans-serif; background: #F7F7F5; padding: 20px;">
+        <div style="max-width: 500px; margin: 0 auto; background: white; border: 2px solid #133E26;">
+            <div style="background: #133E26; color: white; padding: 20px; text-align: center;">
+                <h2 style="margin: 0;">🏠 Nouvelle Annonce!</h2>
+            </div>
+            <div style="padding: 20px;">
+                <p>Bonjour {name},</p>
+                <p>Un nouveau terrain correspondant à vos critères vient d'être publié!</p>
+                
+                <div style="background: #F7F7F5; padding: 15px; margin: 15px 0;">
+                    <h3 style="margin-top: 0; color: #133E26;">{land.get('title', 'Terrain')}</h3>
+                    <p style="margin: 5px 0;">📍 {land.get('commune', '')}, {land.get('region', '')}</p>
+                    <p style="margin: 5px 0;">📐 {land.get('size', 0):,.0f} m²</p>
+                    <p style="margin: 5px 0; font-size: 20px; color: #D95A2B; font-weight: bold;">
+                        {land.get('price', 0):,.0f} GNF
+                    </p>
+                </div>
+                
+                <a href="{land_url}" style="display: block; background: #D95A2B; color: white; text-align: center; padding: 12px; text-decoration: none;">
+                    Voir le terrain
+                </a>
+            </div>
+            <div style="background: #133E26; color: white; padding: 10px; text-align: center; font-size: 12px;">
+                Guinea Land Hub - Transactions Foncières en Guinée
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    try:
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": SENDER_EMAIL,
+            "to": [email],
+            "subject": f"🏠 Nouveau terrain à {land.get('commune', land.get('region'))}",
+            "html": html_content
+        })
+    except Exception as e:
+        logger.error(f"Zone alert email failed: {e}")
+
+
+@api_router.post("/sms/test")
+async def test_sms(request: Request):
+    """Test SMS sending (admin only)"""
+    user = await get_current_user(request)
+    
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    body = await request.json()
+    phone = body.get("phone")
+    message = body.get("message", "Test SMS from Guinea Land Hub")
+    
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number required")
+    
+    if not twilio_client:
+        return {"status": "error", "message": "Twilio not configured"}
+    
+    success = await send_sms_notification(phone, message)
+    return {"status": "sent" if success else "failed"}
+
+
+@api_router.get("/sms/status")
+async def get_sms_status():
+    """Check if SMS notifications are configured"""
+    return {
+        "configured": twilio_client is not None,
+        "provider": "twilio" if twilio_client else None
+    }
 
 
 # Include the router in the main app

@@ -28,6 +28,7 @@ import Feedback from './pages/Feedback';
 import MarketTrends from './pages/MarketTrends';
 import LandComparison from './pages/LandComparison';
 import SavedSearches from './pages/SavedSearches';
+import ZoneAlertsPage from './pages/ZoneAlerts';
 
 // Register Service Worker
 const registerServiceWorker = async () => {
@@ -118,6 +119,11 @@ const AppRouter = () => {
           <Route path="/saved-searches" element={
             <ProtectedRoute>
               <SavedSearches />
+            </ProtectedRoute>
+          } />
+          <Route path="/zone-alerts" element={
+            <ProtectedRoute>
+              <ZoneAlertsPage />
             </ProtectedRoute>
           } />
         </Routes>

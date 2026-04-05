@@ -22,8 +22,10 @@ import {
   Image as ImageIcon,
   Receipt,
   Share,
-  ShieldCheck
+  ShieldCheck,
+  QrCode
 } from '@phosphor-icons/react';
+import { LandQRCode } from '../components/QRCode';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -298,13 +300,17 @@ export default function LandDetail() {
                 )}
                 
                 {/* Share Button */}
-                <div className="pt-3 border-t border-border">
+                <div className="pt-3 border-t border-border flex gap-2">
                   <WhatsAppShareButton
                     landTitle={land.title}
                     landPrice={land.price}
                     landLocation={`${land.commune}, ${land.region}`}
                     landUrl={window.location.href}
-                    className="w-full"
+                    className="flex-1"
+                  />
+                  <LandQRCode
+                    landId={land.land_id}
+                    landTitle={land.title}
                   />
                 </div>
               </div>

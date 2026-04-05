@@ -11,7 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import { MagnifyingGlass, Funnel, X, List, GridFour } from '@phosphor-icons/react';
+import { MagnifyingGlass, Funnel, X, List, GridFour, BellRinging } from '@phosphor-icons/react';
+import { ZoneAlertSubscription } from '../components/ZoneAlerts';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -198,10 +199,21 @@ export default function MapView() {
               <Button onClick={applyFilters} className="col-span-2 h-9 sm:h-10 text-sm" data-testid="apply-filters-btn">
                 {t('lands.filter.apply')}
               </Button>
-              <Button variant="ghost" onClick={clearFilters} className="col-span-2 h-9 sm:h-10 text-sm">
-                <X className="w-4 h-4 mr-2" />
-                {t('lands.filter.clear')}
-              </Button>
+              <div className="col-span-2 flex gap-2">
+                <Button variant="ghost" onClick={clearFilters} className="flex-1 h-9 sm:h-10 text-sm">
+                  <X className="w-4 h-4 mr-2" />
+                  {t('lands.filter.clear')}
+                </Button>
+                <ZoneAlertSubscription 
+                  region={filters.region !== 'all' ? filters.region : ''}
+                  trigger={
+                    <Button variant="outline" className="h-9 sm:h-10 text-sm gap-1">
+                      <BellRinging className="w-4 h-4" />
+                      <span className="hidden sm:inline">Alerte</span>
+                    </Button>
+                  }
+                />
+              </div>
             </div>
           )}
         </div>

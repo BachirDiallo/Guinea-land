@@ -21,7 +21,9 @@ import {
   List,
   Globe,
   CaretDown,
-  ShieldCheck
+  ShieldCheck,
+  BellRinging,
+  MagnifyingGlass
 } from '@phosphor-icons/react';
 
 export const Navbar = () => {
@@ -139,6 +141,18 @@ export const Navbar = () => {
                     <Link to="/profile" className="flex items-center gap-2">
                       <User className="w-4 h-4" />
                       {t('nav.profile')}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/zone-alerts" className="flex items-center gap-2">
+                      <BellRinging className="w-4 h-4" />
+                      Alertes de zone
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/saved-searches" className="flex items-center gap-2">
+                      <MagnifyingGlass className="w-4 h-4" />
+                      Recherches
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
