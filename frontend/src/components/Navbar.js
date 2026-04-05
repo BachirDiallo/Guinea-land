@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
+import { NotificationBell } from './Notifications';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,6 +89,9 @@ export const Navbar = () => {
 
           {/* Right side */}
           <div className="flex items-center gap-2">
+            {/* Notification Bell */}
+            {user && <NotificationBell />}
+            
             {/* Language Switcher */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

@@ -6,7 +6,8 @@ import { LandMap } from '../components/LandMap';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { WhatsAppContactButton, WhatsAppShareButton } from '../components/WhatsApp';
-import { VerificationBadge, PriceComparison, UserRatingBadge } from '../components/Reviews';
+import { VerificationBadge, UserRatingBadge } from '../components/Reviews';
+import { EnhancedPriceComparison } from '../components/MarketPrices';
 import { toast } from 'sonner';
 import { 
   MapPin, 
@@ -218,8 +219,8 @@ export default function LandDetail() {
               </div>
             )}
 
-            {/* Price Comparison */}
-            <PriceComparison landId={landId} />
+            {/* Price Comparison - Enhanced with nearby transactions */}
+            <EnhancedPriceComparison landId={landId} />
 
             {/* Key Info */}
             <div className="grid grid-cols-2 gap-4">

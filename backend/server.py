@@ -1043,7 +1043,7 @@ async def delete_land(land_id: str, request: Request):
 
 @api_router.post("/transactions", response_model=TransactionResponse)
 async def create_transaction(transaction: TransactionCreate, request: Request):
-    user = await get_current_user(request)
+    current_user = await get_current_user(request)
     
     # Get the land
     land = await db.lands.find_one({"land_id": transaction.land_id}, {"_id": 0})
@@ -1068,6 +1068,7 @@ async def create_transaction(transaction: TransactionCreate, request: Request):
         "notes": transaction.notes,
         "documents": transaction.documents,
         "status": "completed",
+        "created_by": current_user["user_id"],
         "created_at": now
     }
     
@@ -1228,7 +1229,8 @@ async def download_transaction_pdf(transaction_id: str, request: Request):
 
 @api_router.get("/stats")
 async def get_stats(request: Request):
-    user = await get_optional_user(request)
+    # User optional for public stats
+    _ = await get_optional_user(request)
     
     total_lands = await db.lands.count_documents({})
     available_lands = await db.lands.count_documents({"status": "available"})
@@ -1874,6 +1876,339 @@ async def compare_land_price(land_id: str):
             }
     
     return comparison
+
+
+# ==================== MARKET PRICES FROM ACTUAL TRANSACTIONS ====================
+
+@api_router.get("/prices/nearby/{land_id}")
+async def get_nearby_transaction_prices(land_id: str, radius_km: float = Query(default=5.0, le=50)):
+    """Get actual transaction prices from nearby completed deals"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    land_lat = land.get("latitude", 0)
+    land_lng = land.get("longitude", 0)
+    land_type = land.get("land_type", "residential")
+    
+    # Get completed transactions
+    completed_transactions = await db.transactions.find(
+        {"status": "completed"},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Get land details for each transaction
+    nearby_sales = []
+    for tx in completed_transactions:
+        tx_land = await db.lands.find_one({"land_id": tx.get("land_id")}, {"_id": 0})
+        if not tx_land:
+            continue
+        
+        tx_lat = tx_land.get("latitude", 0)
+        tx_lng = tx_land.get("longitude", 0)
+        
+        # Calculate approximate distance (simplified haversine)
+        import math
+        lat_diff = abs(land_lat - tx_lat) * 111  # ~111km per degree latitude
+        lng_diff = abs(land_lng - tx_lng) * 111 * math.cos(math.radians(land_lat))
+        distance_km = math.sqrt(lat_diff**2 + lng_diff**2)
+        
+        if distance_km <= radius_km:
+            price_per_m2 = tx.get("price", 0) / tx_land.get("size", 1) if tx_land.get("size", 0) > 0 else 0
+            nearby_sales.append({
+                "transaction_id": tx.get("transaction_id"),
+                "land_title": tx_land.get("title"),
+                "land_type": tx_land.get("land_type"),
+                "commune": tx_land.get("commune"),
+                "quartier": tx_land.get("quartier"),
+                "price": tx.get("price"),
+                "size": tx_land.get("size"),
+                "price_per_m2": round(price_per_m2, 2),
+                "distance_km": round(distance_km, 2),
+                "transaction_date": tx.get("transaction_date") or tx.get("created_at"),
+                "latitude": tx_lat,
+                "longitude": tx_lng
+            })
+    
+    # Sort by distance
+    nearby_sales.sort(key=lambda x: x["distance_km"])
+    
+    # Calculate market statistics from nearby sales
+    if nearby_sales:
+        same_type_sales = [s for s in nearby_sales if s["land_type"] == land_type]
+        if same_type_sales:
+            prices = [s["price_per_m2"] for s in same_type_sales]
+            market_stats = {
+                "count": len(same_type_sales),
+                "avg_price_per_m2": round(sum(prices) / len(prices), 2),
+                "min_price_per_m2": round(min(prices), 2),
+                "max_price_per_m2": round(max(prices), 2)
+            }
+        else:
+            market_stats = None
+    else:
+        market_stats = None
+    
+    return {
+        "land_id": land_id,
+        "search_radius_km": radius_km,
+        "nearby_transactions": nearby_sales[:10],  # Limit to 10 nearest
+        "total_found": len(nearby_sales),
+        "market_statistics": market_stats
+    }
+
+
+@api_router.get("/prices/market-analysis")
+async def get_market_analysis(
+    region: Optional[str] = None,
+    commune: Optional[str] = None,
+    land_type: Optional[str] = None,
+    months: int = Query(default=12, le=36)
+):
+    """Get market analysis based on actual completed transactions"""
+    # Calculate date range
+    from_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
+    
+    # Build query for completed transactions
+    query = {"status": "completed"}
+    
+    # Get all completed transactions
+    transactions = await db.transactions.find(query, {"_id": 0}).to_list(1000)
+    
+    # Filter by land properties
+    filtered_data = []
+    for tx in transactions:
+        tx_land = await db.lands.find_one({"land_id": tx.get("land_id")}, {"_id": 0})
+        if not tx_land:
+            continue
+        
+        # Apply filters
+        if region and tx_land.get("region") != region:
+            continue
+        if commune and tx_land.get("commune") != commune:
+            continue
+        if land_type and tx_land.get("land_type") != land_type:
+            continue
+        
+        tx_date = tx.get("transaction_date") or tx.get("created_at")
+        if isinstance(tx_date, str):
+            try:
+                tx_date = datetime.fromisoformat(tx_date.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        
+        # Handle naive datetimes by adding UTC timezone
+        if tx_date and tx_date.tzinfo is None:
+            tx_date = tx_date.replace(tzinfo=timezone.utc)
+        
+        if tx_date and tx_date >= from_date:
+            size = tx_land.get("size", 1)
+            price_per_m2 = tx.get("price", 0) / size if size > 0 else 0
+            filtered_data.append({
+                "region": tx_land.get("region"),
+                "commune": tx_land.get("commune"),
+                "quartier": tx_land.get("quartier"),
+                "land_type": tx_land.get("land_type"),
+                "price": tx.get("price"),
+                "size": size,
+                "price_per_m2": price_per_m2,
+                "date": tx_date.isoformat() if tx_date else None
+            })
+    
+    if not filtered_data:
+        return {
+            "period_months": months,
+            "filters": {"region": region, "commune": commune, "land_type": land_type},
+            "total_transactions": 0,
+            "statistics": None,
+            "message": "Aucune transaction trouvée pour cette période"
+        }
+    
+    # Calculate statistics
+    prices_per_m2 = [d["price_per_m2"] for d in filtered_data]
+    total_volume = sum(d["price"] for d in filtered_data)
+    
+    return {
+        "period_months": months,
+        "filters": {"region": region, "commune": commune, "land_type": land_type},
+        "total_transactions": len(filtered_data),
+        "statistics": {
+            "avg_price_per_m2": round(sum(prices_per_m2) / len(prices_per_m2), 2),
+            "min_price_per_m2": round(min(prices_per_m2), 2),
+            "max_price_per_m2": round(max(prices_per_m2), 2),
+            "median_price_per_m2": round(sorted(prices_per_m2)[len(prices_per_m2) // 2], 2),
+            "total_volume_gnf": total_volume,
+            "avg_land_size": round(sum(d["size"] for d in filtered_data) / len(filtered_data), 2)
+        },
+        "by_commune": {}  # Could aggregate by commune if needed
+    }
+
+
+# ==================== PUSH NOTIFICATIONS ====================
+
+@api_router.post("/notifications/subscribe")
+async def subscribe_to_notifications(request: Request):
+    """Subscribe to push notifications"""
+    user = await get_current_user(request)
+    body = await request.json()
+    
+    subscription_id = f"sub_{uuid.uuid4().hex[:12]}"
+    subscription_doc = {
+        "subscription_id": subscription_id,
+        "user_id": user["user_id"],
+        "endpoint": body.get("endpoint"),
+        "keys": body.get("keys", {}),
+        "p256dh": body.get("p256dh"),
+        "auth": body.get("auth"),
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc),
+        "preferences": {
+            "new_listings": True,
+            "transaction_updates": True,
+            "price_alerts": True,
+            "verifications": True
+        }
+    }
+    
+    # Check if already subscribed with this endpoint
+    existing = await db.push_subscriptions.find_one({
+        "user_id": user["user_id"],
+        "endpoint": body.get("endpoint")
+    })
+    
+    if existing:
+        await db.push_subscriptions.update_one(
+            {"subscription_id": existing["subscription_id"]},
+            {"$set": {"is_active": True, "updated_at": datetime.now(timezone.utc)}}
+        )
+        return {"message": "Abonnement réactivé", "subscription_id": existing["subscription_id"]}
+    
+    await db.push_subscriptions.insert_one(subscription_doc)
+    return {"message": "Abonnement aux notifications activé", "subscription_id": subscription_id}
+
+
+@api_router.post("/notifications/unsubscribe")
+async def unsubscribe_from_notifications(request: Request):
+    """Unsubscribe from push notifications"""
+    user = await get_current_user(request)
+    body = await request.json()
+    endpoint = body.get("endpoint")
+    
+    result = await db.push_subscriptions.update_one(
+        {"user_id": user["user_id"], "endpoint": endpoint},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Abonnement non trouvé")
+    
+    return {"message": "Désabonnement effectué"}
+
+
+@api_router.get("/notifications/status")
+async def get_notification_status(request: Request):
+    """Get user's notification subscription status"""
+    user = await get_current_user(request)
+    
+    subscription = await db.push_subscriptions.find_one(
+        {"user_id": user["user_id"], "is_active": True},
+        {"_id": 0}
+    )
+    
+    return {
+        "subscribed": subscription is not None,
+        "preferences": subscription.get("preferences") if subscription else None
+    }
+
+
+@api_router.put("/notifications/preferences")
+async def update_notification_preferences(request: Request):
+    """Update notification preferences"""
+    user = await get_current_user(request)
+    body = await request.json()
+    
+    result = await db.push_subscriptions.update_many(
+        {"user_id": user["user_id"], "is_active": True},
+        {"$set": {"preferences": body.get("preferences", {}), "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Aucun abonnement actif trouvé")
+    
+    return {"message": "Préférences mises à jour"}
+
+
+@api_router.get("/notifications/history")
+async def get_notification_history(
+    request: Request,
+    limit: int = Query(default=20, le=100)
+):
+    """Get user's notification history"""
+    user = await get_current_user(request)
+    
+    notifications = await db.notifications.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    return notifications
+
+
+# Internal function to send notification (called from other endpoints)
+async def send_push_notification(user_id: str, notification_type: str, title: str, body: str, data: dict = None):
+    """Internal function to queue a push notification"""
+    notification_id = f"notif_{uuid.uuid4().hex[:12]}"
+    notification_doc = {
+        "notification_id": notification_id,
+        "user_id": user_id,
+        "type": notification_type,
+        "title": title,
+        "body": body,
+        "data": data or {},
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    await db.notifications.insert_one(notification_doc)
+    
+    # In production, this would trigger actual push via pywebpush
+    # For now, we store the notification for retrieval
+    return notification_id
+
+
+@api_router.post("/notifications/mark-read")
+async def mark_notifications_read(request: Request):
+    """Mark notifications as read"""
+    user = await get_current_user(request)
+    body = await request.json()
+    notification_ids = body.get("notification_ids", [])
+    
+    if notification_ids:
+        await db.notifications.update_many(
+            {"notification_id": {"$in": notification_ids}, "user_id": user["user_id"]},
+            {"$set": {"read": True}}
+        )
+    else:
+        # Mark all as read
+        await db.notifications.update_many(
+            {"user_id": user["user_id"]},
+            {"$set": {"read": True}}
+        )
+    
+    return {"message": "Notifications marquées comme lues"}
+
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(request: Request):
+    """Get count of unread notifications"""
+    user = await get_current_user(request)
+    
+    count = await db.notifications.count_documents({
+        "user_id": user["user_id"],
+        "read": False
+    })
+    
+    return {"unread_count": count}
 
 
 # ==================== FEEDBACK & SUGGESTIONS SYSTEM ====================
