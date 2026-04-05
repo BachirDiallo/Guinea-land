@@ -79,7 +79,7 @@
   "should_main_agent_self_test": false,
   "context_for_next_testing_agent": "All new features tested and working: 1) Push Notifications system at /api/notifications/* with subscribe, unsubscribe, status, history, mark-read, unread-count endpoints, 2) Nearby Prices API at /api/prices/nearby/{land_id} returns actual transaction prices within radius, 3) Market Analysis API at /api/prices/market-analysis returns statistics from completed transactions, 4) EnhancedPriceComparison component shows two tabs - 'Prix de référence' and 'Ventes à proximité'. Admin login works with admin@guinealand.com/admin123. Mapbox uses real user token.",
   "mocked_apis": {
-    "Mapbox": "Uses real user token (pk.eyJ1IjoiYmFjaGlyciIsImEiOiJjbW5mMHAwOWMwMGFjMm9zOWJ1d2RqZ2ZmIn0.JIXVfaBD_kyDHeVHqz2-Ww)"
+    "Mapbox": "Uses real user token (pk.YOUR_MAPBOX_TOKEN)"
   },
   "features_verified": {
     "push_notifications": {
