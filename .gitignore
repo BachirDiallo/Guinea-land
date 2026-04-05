@@ -28,10 +28,11 @@ next-env.d.ts
 # Production builds
 /build
 dist/
-dist
 
-# Environment files (comprehensive coverage)
-
+# Environment files with secrets
+backend/.env
+frontend/.env
+SECRETS.md
 *token.json*
 *credentials.json*
 
@@ -61,10 +62,7 @@ chainlit.md
 # Deployment
 .vercel
 
-# Data and databases
-agenthub/agents/youtube/db
-
-# Archive files and large assets
+# Archive files
 **/*.zip
 **/*.tar.gz
 **/*.tar
@@ -75,55 +73,9 @@ agenthub/agents/youtube/db
 
 # Build caches
 .cache/
+frontend/node_modules/.cache/
 
-# Mobile development
-android-sdk/ frontend/node_modules/.cache/default-development/1.pack
-frontend/node_modules/.cache/default-development/1.pack
--e 
-# Environment files
-*.env
-*.env.*
-frontend/node_modules/.cache/default-development/0.pack
-frontend/node_modules/.cache/default-development/2.pack
-frontend/node_modules/.cache/default-development/2.pack
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
+# Keep .env.example files
+!backend/.env.example
+!frontend/.env.example
 frontend/node_modules/.cache/default-development/4.pack
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
-# Environment files with secrets
-backend/.env
-frontend/.env
-
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
