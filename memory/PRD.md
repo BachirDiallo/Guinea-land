@@ -170,6 +170,28 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - For production: Verify domain at resend.com/domains
 - Update SENDER_EMAIL to verified domain email
 
+### Phase 6 - Adoption Features (April 5, 2025)
+- ✅ **QR Codes for Land Listings**
+  - GET `/api/lands/{land_id}/qrcode` - Returns PNG QR code (customizable size)
+  - GET `/api/lands/{land_id}/qrcode/download` - Printable PNG with land info overlay
+  - QR Code dialog in land detail page with download/print buttons
+  - Brand colors (#133E26 Guinea Land Hub green)
+- ✅ **Zone Alerts Subscription**
+  - POST `/api/zone-alerts` - Create subscription (region, commune, quartier, types, price/size filters)
+  - GET `/api/zone-alerts` - List user's active subscriptions
+  - PUT `/api/zone-alerts/{id}` - Toggle active, update filters
+  - DELETE `/api/zone-alerts/{id}` - Remove subscription
+  - Automatic email notifications when new land matches criteria
+  - SMS notifications ready (when Twilio configured)
+  - `/zone-alerts` page with subscription management
+  - Quick buttons for popular zones (Ratoma, Kaloum, Matam, Kindia, Labé)
+- ✅ **SMS Notifications Infrastructure**
+  - Twilio integration scaffolding complete
+  - Guinea phone number formatting (+224)
+  - GET `/api/sms/status` - Check if SMS is configured
+  - POST `/api/sms/test` - Admin SMS testing
+  - Zone alert triggers for SMS
+
 ## Prioritized Backlog
 
 ### P0 - Critical (Completed ✅)
@@ -187,7 +209,7 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - [x] Market Analysis from Actual Transactions ✅
 
 ### P1 - High Priority (Remaining)
-- [ ] SMS notifications (Twilio - user opted to wait)
+- [ ] SMS notifications (Twilio - user opted to wait, scaffolding complete)
 - [x] Offline support / PWA ✅
 - [x] Mapbox with user's token ✅
 
@@ -196,6 +218,8 @@ Build an app that will map and sell lands in Guinea, handling land transactions 
 - [x] Advanced search with saved filters ✅
 - [x] Land comparison feature ✅
 - [x] Market trends dashboard ✅
+- [x] QR Codes for land listings ✅ (April 2025)
+- [x] Zone Alerts subscription system ✅ (April 2025)
 
 ### P3 - Future (Completed ✅)
 - [x] Local languages: Pular, Maninka, Soussou ✅

@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from './ui/dialog';
 import { QrCode, Download, Printer } from '@phosphor-icons/react';
 
@@ -99,6 +100,9 @@ export const LandQRCode = ({
             <QrCode className="w-5 h-5 text-primary" weight="fill" />
             Code QR du terrain
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Scannez ce code QR pour accéder aux détails du terrain
+          </DialogDescription>
         </DialogHeader>
         
         <div className="flex flex-col items-center py-6">
