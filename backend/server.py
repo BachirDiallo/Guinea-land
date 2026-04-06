@@ -1974,6 +1974,70 @@ async def get_nearby_transaction_prices(land_id: str, radius_km: float = Query(d
     }
 
 
+
+@api_router.get("/lands/nearby/{land_id}")
+async def get_nearby_available_lands(land_id: str, radius_km: float = Query(default=5.0, le=50)):
+    """Get available lands for sale nearby (not transactions, actual listings)"""
+    import math
+    
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    land_lat = land.get("latitude", 0)
+    land_lng = land.get("longitude", 0)
+    
+    # Get all available lands except the current one
+    available_lands = await db.lands.find(
+        {"status": "available", "land_id": {"$ne": land_id}},
+        {"_id": 0}
+    ).to_list(500)
+    
+    nearby_lands = []
+    for other_land in available_lands:
+        other_lat = other_land.get("latitude", 0)
+        other_lng = other_land.get("longitude", 0)
+        
+        # Skip if no coordinates
+        if not other_lat or not other_lng:
+            continue
+        
+        # Calculate approximate distance (simplified haversine)
+        lat_diff = abs(land_lat - other_lat) * 111  # ~111km per degree latitude
+        lng_diff = abs(land_lng - other_lng) * 111 * math.cos(math.radians(land_lat))
+        distance_km = math.sqrt(lat_diff**2 + lng_diff**2)
+        
+        if distance_km <= radius_km:
+            price_per_m2 = other_land.get("price", 0) / other_land.get("size", 1) if other_land.get("size", 0) > 0 else 0
+            nearby_lands.append({
+                "land_id": other_land.get("land_id"),
+                "title": other_land.get("title"),
+                "land_type": other_land.get("land_type"),
+                "region": other_land.get("region"),
+                "commune": other_land.get("commune"),
+                "quartier": other_land.get("quartier"),
+                "price": other_land.get("price"),
+                "size": other_land.get("size"),
+                "price_per_m2": round(price_per_m2, 2),
+                "distance_km": round(distance_km, 2),
+                "latitude": other_lat,
+                "longitude": other_lng,
+                "photos": other_land.get("photos", [])[:1],  # First photo only
+                "verified": other_land.get("verified", False)
+            })
+    
+    # Sort by distance
+    nearby_lands.sort(key=lambda x: x["distance_km"])
+    
+    return {
+        "land_id": land_id,
+        "search_radius_km": radius_km,
+        "nearby_lands": nearby_lands[:20],  # Limit to 20 nearest
+        "total_found": len(nearby_lands)
+    }
+
+
+
 @api_router.get("/prices/market-analysis")
 async def get_market_analysis(
     region: Optional[str] = None,

@@ -31,11 +31,13 @@ export const EnhancedPriceComparison = ({ landId, landLocation }) => {
   const navigate = useNavigate();
   const [comparison, setComparison] = useState(null);
   const [nearbyPrices, setNearbyPrices] = useState(null);
+  const [nearbyLands, setNearbyLands] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('reference');
+  const [activeTab, setActiveTab] = useState('nearby'); // Default to nearby lands
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
   const [radius, setRadius] = useState(5);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [selectedLand, setSelectedLand] = useState(null);
   const mapRef = useRef(null);
 
   // Fetch data when radius changes
@@ -53,6 +55,12 @@ export const EnhancedPriceComparison = ({ landId, landLocation }) => {
         const nearbyRes = await fetch(`${API}/prices/nearby/${landId}?radius_km=${radius}`);
         if (nearbyRes.ok) {
           setNearbyPrices(await nearbyRes.json());
+        }
+        
+        // Fetch nearby available lands with selected radius
+        const nearbyLandsRes = await fetch(`${API}/lands/nearby/${landId}?radius_km=${radius}`);
+        if (nearbyLandsRes.ok) {
+          setNearbyLands(await nearbyLandsRes.json());
         }
       } catch (error) {
         console.error('Error fetching price data:', error);
@@ -77,8 +85,10 @@ export const EnhancedPriceComparison = ({ landId, landLocation }) => {
 
   const hasReferenceData = comparison?.reference_available;
   const hasMarketData = nearbyPrices?.total_found > 0;
+  const hasNearbyLands = nearbyLands?.total_found > 0;
 
-  if (!hasReferenceData && !hasMarketData) {
+  // Show component if we have nearby lands OR reference/market data
+  if (!hasReferenceData && !hasMarketData && !hasNearbyLands) {
     return null;
   }
 
@@ -128,6 +138,18 @@ export const EnhancedPriceComparison = ({ landId, landLocation }) => {
     <div className="bg-card border border-border" data-testid="enhanced-price-comparison">
       {/* Tab Headers */}
       <div className="flex border-b border-border">
+        {/* Nearby Available Lands Tab - First priority */}
+        <button
+          onClick={() => setActiveTab('nearby')}
+          className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+            activeTab === 'nearby'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-secondary/50 hover:bg-secondary'
+          }`}
+          data-testid="tab-nearby"
+        >
+          Terrains à proximité ({nearbyLands?.total_found || 0})
+        </button>
         {hasReferenceData && (
           <button
             onClick={() => setActiveTab('reference')}
@@ -151,12 +173,241 @@ export const EnhancedPriceComparison = ({ landId, landLocation }) => {
             }`}
             data-testid="tab-market"
           >
-            Ventes à proximité ({nearbyPrices.total_found})
+            Ventes passées ({nearbyPrices.total_found})
           </button>
         )}
       </div>
 
       <div className="p-4">
+        {/* Nearby Available Lands Tab */}
+        {activeTab === 'nearby' && (
+          <div className="space-y-4">
+            {/* Radius Selector */}
+            <div className="bg-secondary/30 p-3 rounded" data-testid="radius-selector-nearby">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Circle className="w-4 h-4" weight="fill" />
+                  Rayon de recherche
+                </div>
+                <Select value={radius.toString()} onValueChange={(v) => setRadius(parseInt(v))}>
+                  <SelectTrigger className="w-24 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 km</SelectItem>
+                    <SelectItem value="2">2 km</SelectItem>
+                    <SelectItem value="5">5 km</SelectItem>
+                    <SelectItem value="10">10 km</SelectItem>
+                    <SelectItem value="20">20 km</SelectItem>
+                    <SelectItem value="50">50 km</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Slider
+                value={[radius]}
+                onValueChange={([v]) => setRadius(v)}
+                min={1}
+                max={50}
+                step={1}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>1 km</span>
+                <span>50 km</span>
+              </div>
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('list')}
+                className="flex-1 gap-1"
+                data-testid="nearby-view-list-btn"
+              >
+                <ListBullets className="w-4 h-4" />
+                Liste
+              </Button>
+              <Button
+                variant={viewMode === 'map' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('map')}
+                className="flex-1 gap-1"
+                data-testid="nearby-view-map-btn"
+              >
+                <MapTrifold className="w-4 h-4" />
+                Carte
+              </Button>
+            </div>
+
+            {/* Map View for Nearby Lands */}
+            {viewMode === 'map' && landLocation && MAPBOX_TOKEN && (
+              <div className="h-64 rounded overflow-hidden border border-border" data-testid="nearby-lands-map">
+                <Map
+                  ref={mapRef}
+                  initialViewState={{
+                    longitude: landLocation.lng,
+                    latitude: landLocation.lat,
+                    zoom: radius > 20 ? 9 : radius > 10 ? 10 : radius > 5 ? 11 : 12
+                  }}
+                  style={{ width: '100%', height: '100%' }}
+                  mapStyle="mapbox://styles/mapbox/streets-v12"
+                  mapboxAccessToken={MAPBOX_TOKEN}
+                >
+                  {/* Radius Circle */}
+                  {circleGeoJson && (
+                    <Source type="geojson" data={circleGeoJson}>
+                      <Layer
+                        type="fill"
+                        paint={{
+                          'fill-color': '#133E26',
+                          'fill-opacity': 0.1
+                        }}
+                      />
+                      <Layer
+                        type="line"
+                        paint={{
+                          'line-color': '#133E26',
+                          'line-width': 2,
+                          'line-dasharray': [2, 2]
+                        }}
+                      />
+                    </Source>
+                  )}
+
+                  {/* Current Land Marker (Star) */}
+                  <Marker
+                    longitude={landLocation.lng}
+                    latitude={landLocation.lat}
+                  >
+                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center border-2 border-white shadow-lg">
+                      <MapPin className="w-5 h-5 text-white" weight="fill" />
+                    </div>
+                  </Marker>
+
+                  {/* Nearby Lands Markers */}
+                  {nearbyLands?.nearby_lands?.map((land, idx) => (
+                    land.latitude && land.longitude && (
+                      <Marker
+                        key={land.land_id || idx}
+                        longitude={land.longitude}
+                        latitude={land.latitude}
+                        onClick={(e) => {
+                          e.originalEvent.stopPropagation();
+                          setSelectedLand(land);
+                        }}
+                      >
+                        <div 
+                          className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white shadow cursor-pointer hover:scale-110 transition-transform"
+                          title={`${land.price?.toLocaleString()} GNF`}
+                        >
+                          <span className="text-[8px] text-white font-bold">{idx + 1}</span>
+                        </div>
+                      </Marker>
+                    )
+                  ))}
+
+                  {/* Popup for selected land */}
+                  {selectedLand && selectedLand.latitude && (
+                    <Popup
+                      longitude={selectedLand.longitude}
+                      latitude={selectedLand.latitude}
+                      onClose={() => setSelectedLand(null)}
+                      closeButton={true}
+                      closeOnClick={false}
+                      anchor="bottom"
+                    >
+                      <div className="p-2 min-w-[180px]">
+                        <div className="font-bold text-sm line-clamp-1">{selectedLand.title}</div>
+                        <div className="text-xs text-gray-500">{selectedLand.commune}, {selectedLand.region}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <div className="text-gray-500">Prix</div>
+                            <div className="font-bold text-accent">{selectedLand.price?.toLocaleString()} GNF</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Distance</div>
+                            <div className="font-bold">{selectedLand.distance_km} km</div>
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs">
+                          <span className="text-gray-500">Surface:</span> {selectedLand.size?.toLocaleString()} m²
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full mt-2 h-7 text-xs"
+                          onClick={() => navigate(`/lands/${selectedLand.land_id}`)}
+                        >
+                          Voir le terrain
+                          <CaretRight className="w-3 h-3 ml-1" />
+                        </Button>
+                      </div>
+                    </Popup>
+                  )}
+                </Map>
+              </div>
+            )}
+
+            {/* List View for Nearby Lands */}
+            {viewMode === 'list' && (
+              <div className="space-y-2" data-testid="nearby-lands-list">
+                {hasNearbyLands ? (
+                  <>
+                    <div className="text-sm font-medium">Terrains disponibles à proximité</div>
+                    {nearbyLands.nearby_lands?.slice(0, 20).map((land, idx) => (
+                      <div 
+                        key={land.land_id || idx}
+                        className="flex items-center justify-between p-2 bg-secondary/20 rounded text-sm hover:bg-secondary/40 cursor-pointer transition-colors"
+                        onClick={() => navigate(`/lands/${land.land_id}`)}
+                        data-testid={`nearby-land-item-${idx}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                            <span className="text-[10px] text-white font-bold">{idx + 1}</span>
+                          </div>
+                          <div>
+                            <div className="font-medium line-clamp-1 flex items-center gap-1">
+                              {land.title}
+                              {land.verified && (
+                                <span className="text-blue-500 text-xs">✓</span>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground flex items-center gap-2">
+                              <span>{land.commune}</span>
+                              <span>•</span>
+                              <span>{land.distance_km} km</span>
+                              <span>•</span>
+                              <span>{land.size?.toLocaleString()} m²</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="font-bold text-accent">{land.price?.toLocaleString()}</div>
+                          <div className="text-xs text-muted-foreground">GNF</div>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {nearbyLands.total_found > 20 && (
+                      <div className="text-xs text-center text-muted-foreground">
+                        +{nearbyLands.total_found - 20} autres terrains
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <MapPin className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    <p>Aucun terrain disponible dans un rayon de {radius} km</p>
+                    <p className="text-xs mt-1">Essayez d'augmenter le rayon de recherche</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Reference Prices Tab */}
         {activeTab === 'reference' && hasReferenceData && (
           <div className="space-y-4">
