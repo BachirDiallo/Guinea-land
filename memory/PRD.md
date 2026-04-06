@@ -1,260 +1,118 @@
 # Guinea Land Hub - Product Requirements Document
 
 ## Original Problem Statement
-Build an app that will map and sell lands in Guinea, handling land transactions where every transaction is tracked with all information (photos, location, parties involved, etc.). The goal is to make land information accessible in Guinea where it's traditionally a challenge.
+Build an app that will map and sell lands in Guinea. The idea is to handle land transactions in Guinea, where every transaction will be tracked along with all related information (photos, location, parties involved, etc.).
 
-## Architecture
-- **Backend**: FastAPI (Python) with MongoDB
-- **Frontend**: React with Tailwind CSS, Shadcn UI
-- **Map**: React Map GL with Mapbox
-- **Auth**: JWT + Emergent Google OAuth
-- **Storage**: Emergent Object Storage for files
-- **Email**: Resend for transaction notifications
-- **PDF**: ReportLab for transaction documents
-- **Language**: Bilingual French (primary) + English
+## Product Requirements
+- **Users**: Agents, buyers, sellers, admins
+- **Auth**: JWT + Google social login
+- **Transactions**: Record details with price
+- **Map**: Interactive map with plot boundaries and text details
+- **Language**: Bilingual (French primary, English secondary) with future local languages support
 
 ## User Personas
-1. **Buyers (Acheteurs)**: Looking to purchase land in Guinea
-2. **Sellers (Vendeurs)**: Property owners wanting to sell their land
-3. **Real Estate Agents**: Professionals managing land transactions
-4. **Administrators**: Platform managers verifying land listings
-5. **Administrative Officials (Government)**:
-   - Chef de Quartier - Neighborhood chief (quartier level verification)
-   - Chef de Secteur - Sector chief (secteur level verification)
-   - Chef de Village - Village chief (village level verification)
-   - Maire - Mayor (commune level verification)
-   - Préfet - Prefect (prefecture level verification)
-   - Gouverneur - Governor (region level verification)
+1. **Buyers** - Search for land, compare options, contact sellers
+2. **Sellers** - List land with photos/boundaries, manage inquiries
+3. **Agents** - Facilitate transactions, manage listings
+4. **Admins** - Verify listings, manage users, access analytics
 
-## Core Requirements (Static)
-- Interactive map with land plot boundaries
-- Land listings with photos, location, price, size
-- Transaction recording (buyer, seller, date, price, documents)
-- User authentication (JWT + Google OAuth)
-- French/English bilingual support
-- Search and filter by region, price, type, status
+---
 
-## What's Been Implemented (March 2024)
+## Completed Features (December 2025)
 
-### Phase 1 - MVP
-- ✅ User authentication (register, login, Google OAuth)
-- ✅ Land management (CRUD operations)
-- ✅ Transaction recording
-- ✅ Interactive map with Mapbox
-- ✅ French/English bilingual support
+### Core Platform
+- [x] JWT + Google OAuth authentication (cookie-based)
+- [x] User roles (buyer, seller, agent, admin)
+- [x] Land CRUD with photos, boundaries, verification
+- [x] Interactive Mapbox integration with boundary drawing
+- [x] Transaction tracking with PDF receipts
+- [x] Multilingual support (FR/EN/Pular/Maninka/Soussou)
 
-### Phase 2 - Document & Admin
-- ✅ File upload API (Object Storage)
-- ✅ Admin dashboard with verification workflow
-- ✅ Land boundary drawing tool
+### Discovery & Search
+- [x] Advanced land search with filters (region, type, price, size)
+- [x] Grid/list view toggles
+- [x] Saved searches with notification toggles
+- [x] QR code generation for land listings
 
-### Phase 3 - Notifications & Mobile
-- ✅ **Email notifications** (Resend integration)
-  - Transaction confirmation emails to buyer & seller
-  - Professional HTML templates in French
-- ✅ **PDF generation** (ReportLab)
-  - Downloadable transaction receipts
-  - Official document format with land/party details
-- ✅ **Mobile optimization**
-  - Touch-friendly tap targets (44px min)
-  - Responsive layouts (cards stack on mobile)
-  - Safe area padding for notched devices
-  - iOS zoom prevention on input focus
-  - Momentum scrolling
+### Comparison & Analytics
+- [x] Multi-land comparison (up to 4 lands)
+- [x] 3 view modes: Cards, Table, Map
+- [x] Smart badges (lowest price, best value, largest)
+- [x] Nearby lands with adjustable radius selector
+- [x] Market trends dashboard with regional map
+- [x] Price evolution charts
+- [x] Top sellers leaderboard
+- [x] Verified officials directory
 
-### Phase 4 - PWA & WhatsApp (March 24, 2024)
-- ✅ **Progressive Web App (PWA)**
-  - Service worker for offline caching (`sw.js`)
-  - PWA manifest with app metadata (`manifest.json`)
-  - Offline fallback page in French (`offline.html`)
-  - Network-first strategy for API calls with cache fallback
-  - Cache-first strategy for static assets
-  - Offline status indicator banner
-  - PWA install prompt component
-- ✅ **WhatsApp Integration**
-  - Floating help button on all pages (Guinea country code: +224)
-  - Contact owner button on land detail pages
-  - Share land listings via WhatsApp
-  - Share completed transactions via WhatsApp
-  - Pre-filled French message templates
-- ✅ **Map Tile Caching for Offline Use**
-  - Separate cache store for map tiles (`guinea-land-hub-maps-v1`)
-  - Stale-while-revalidate caching strategy
-  - LRU eviction when cache reaches 500 tiles
-  - Placeholder SVG tiles for uncached areas when offline
-  - Caches tiles from api.mapbox.com and tiles.mapbox.com
-- ✅ **Mobile Map Optimization**
-  - Larger touch targets for markers (40px on mobile)
-  - Navigation controls positioned for thumb reach (bottom-right on mobile)
-  - Geolocation control for user location
-  - Scale control for reference
-  - Map takes 60vh on mobile for better visibility
-  - Compact land cards with horizontal layout
-  - Offline indicator banner on map
-  - Touch-optimized interactions (no rotate on mobile)
+### Alerts & Notifications
+- [x] Zone alerts subscription system
+- [x] Email notifications via Resend
+- [x] In-app notification center
+- [x] Twilio SMS scaffolded (awaiting API key)
 
-### Phase 5 - Trust & Market Regulation (March 31, 2024)
-- ✅ **Multi-Level Verification System**
-  - Administrative user roles: chef_quartier, chef_secteur, chef_village, maire, prefet, gouverneur
-  - Verification badges showing authority level
-  - Verification history with timestamps and notes
-  - Each level can verify lands in their jurisdiction
-- ✅ **Ratings & Reviews System**
-  - 5-star rating for buyers and sellers
-  - Written reviews linked to transactions
-  - Average rating displayed on profiles
-  - Review moderation system
-- ✅ **Neighborhood Price Reference**
-  - Price per m² by region/commune/quartier
-  - Min/max/average price ranges
-  - Price comparison on land detail pages
-  - Market status indicators (fair/above/below market)
-  - Admin-managed price data
-- ✅ **Feedback & Suggestions System**
-  - Dedicated feedback page at /feedback
-  - Types: Suggestion, Bug report, Complaint, Other
-  - Categories: General, UI, Map, Transactions, Verification, Payments
-  - Optional email for anonymous users
-  - Admin dashboard for feedback management
+### Communication
+- [x] WhatsApp integration (+224 Guinea code)
+- [x] QR codes with print/download options
+- [x] PDF transaction receipts
 
-### Phase 6 - Market Analysis & Notifications (April 5, 2024)
-- ✅ **Dual Pricing System**
-  - Reference prices (admin-set) - "Prix de référence" tab
-  - Market prices from actual transactions - "Ventes à proximité" tab
-  - Nearby transactions API (`/api/prices/nearby/{land_id}`)
-  - Distance-based search (configurable radius)
-  - Market statistics: min/avg/max from similar transactions
-- ✅ **Market Analysis API**
-  - `GET /api/prices/market-analysis` endpoint
-  - Filters by region, commune, land_type, time period
-  - Returns transaction count, avg/min/max/median price per m²
-  - Total volume calculation
-- ✅ **Push Notifications System**
-  - Notification bell in navbar for logged-in users
-  - Subscribe/unsubscribe endpoints
-  - Notification preferences (new listings, transactions, price alerts, verifications)
-  - Notification history and unread count
-  - Mark as read functionality
+### Trust & Verification
+- [x] Multi-level verification (Chef de Quartier → Gouverneur)
+- [x] Verification badges
+- [x] Ratings & reviews system
+- [x] Dual pricing (reference vs market)
 
-### Phase 7 - Advanced Features & Localization (April 5, 2024)
-- ✅ **Market Trends Dashboard**
-  - Price evolution over time by month at `/market-trends`
-  - Filters by region, land type, time period (6/12/24/36 months)
-  - Summary cards: Tendance, Transactions, Volume total
-  - Bar chart visualization of avg price per m² by month
-  - Trend direction indicator (up/down/stable)
-- ✅ **Land Comparison Feature**
-  - Compare up to 5 lands side-by-side at `/compare`
-  - Best value badges (Moins cher, Plus grand, Meilleur prix/m²)
-  - Metrics summary (min/max/avg for price, size, price per m²)
-  - Land selector modal with photos and details
-- ✅ **Saved Searches**
-  - Save search filters for reuse at `/saved-searches`
-  - Filter options: region, land_type, price range, size range, verified only
-  - Option to notify on new matches
-  - Execute saved searches to view matching lands
-- ✅ **Local Language Support**
-  - Pular (Fulfulde) - spoken in Fouta Djallon
-  - Maninka (Mandingo) - spoken in Upper Guinea
-  - Soussou (Susu) - spoken in Maritime Guinea/Conakry
-  - Language switcher in navbar with 5 options (FR, EN, Pular, Maninka, Susu)
+### UX/Navigation
+- [x] Mega menu navigation
+- [x] Mobile-responsive sheet menu
+- [x] PWA support with offline fallback
+- [x] Service worker for map tile caching
 
-## Test Credentials
-- **Admin**: admin@guinealand.com / admin123
-- **Demo Agent**: demo@guinealand.com (Google OAuth)
-
-## Configuration Required for Production
-
-### Email (Resend)
-- Current: Test key (can only send to owner's email)
-- For production: Verify domain at resend.com/domains
-- Update SENDER_EMAIL to verified domain email
-
-### Phase 6 - Adoption Features (April 5, 2025)
-- ✅ **QR Codes for Land Listings**
-  - GET `/api/lands/{land_id}/qrcode` - Returns PNG QR code (customizable size)
-  - GET `/api/lands/{land_id}/qrcode/download` - Printable PNG with land info overlay
-  - QR Code dialog in land detail page with download/print buttons
-  - Brand colors (#133E26 Guinea Land Hub green)
-- ✅ **Zone Alerts Subscription**
-  - POST `/api/zone-alerts` - Create subscription (region, commune, quartier, types, price/size filters)
-  - GET `/api/zone-alerts` - List user's active subscriptions
-  - PUT `/api/zone-alerts/{id}` - Toggle active, update filters
-  - DELETE `/api/zone-alerts/{id}` - Remove subscription
-  - Automatic email notifications when new land matches criteria
-  - SMS notifications ready (when Twilio configured)
-  - `/zone-alerts` page with subscription management
-  - Quick buttons for popular zones (Ratoma, Kaloum, Matam, Kindia, Labé)
-- ✅ **SMS Notifications Infrastructure**
-  - Twilio integration scaffolding complete
-  - Guinea phone number formatting (+224)
-  - GET `/api/sms/status` - Check if SMS is configured
-  - POST `/api/sms/test` - Admin SMS testing
-- ✅ **Enhanced Nearby Comparison**
-  - Adjustable radius selector (1km to 50km) with slider + dropdown
-  - Toggle between List view and Map view
-  - Map shows radius circle + markers for nearby transactions
-  - Click markers to see details + navigate to land
-- ✅ **Enhanced Market Trends Dashboard**
-  - Interactive map to select zones/regions
-  - Click region to see detailed statistics (terrains, transactions, price/m²)
-  - Communes breakdown within each region
-  - Price evolution chart with bar visualization
-  - Top Sellers leaderboard (by sales count and volume)
-  - Verified Officials directory
-  - Region filters for all data
-  - API endpoints: `/market/regional-stats`, `/market/top-sellers`, `/market/officials`, `/market/commune-stats/{region}`
-  - GET `/api/zone-alerts` - List user's active subscriptions
-  - PUT `/api/zone-alerts/{id}` - Toggle active, update filters
-  - DELETE `/api/zone-alerts/{id}` - Remove subscription
-  - Automatic email notifications when new land matches criteria
-  - SMS notifications ready (when Twilio configured)
-  - `/zone-alerts` page with subscription management
-  - Quick buttons for popular zones (Ratoma, Kaloum, Matam, Kindia, Labé)
-- ✅ **SMS Notifications Infrastructure**
-  - Twilio integration scaffolding complete
-  - Guinea phone number formatting (+224)
-  - GET `/api/sms/status` - Check if SMS is configured
-  - POST `/api/sms/test` - Admin SMS testing
-  - Zone alert triggers for SMS
-
-## Prioritized Backlog
-
-### P0 - Critical (Completed ✅)
-- [x] Document/photo upload ✅
-- [x] Admin verification workflow ✅
-- [x] Email notifications ✅
-- [x] PDF generation ✅
-- [x] Mobile optimization ✅
-- [x] Authenticity Verification System ✅
-- [x] Reliability Ratings/Reviews ✅
-- [x] Price per m² by Neighborhood ✅
-- [x] Suggestions & Feedback System ✅
-- [x] Push Notifications System ✅
-- [x] Dual Pricing (Reference + Market Prices) ✅
-- [x] Market Analysis from Actual Transactions ✅
-
-### P1 - High Priority (Remaining)
-- [ ] SMS notifications (Twilio - user opted to wait, scaffolding complete)
-- [x] Offline support / PWA ✅
-- [x] Mapbox with user's token ✅
-
-### P2 - Nice to Have (Completed ✅)
-- [x] WhatsApp integration for Guinea market ✅
-- [x] Advanced search with saved filters ✅
-- [x] Land comparison feature ✅
-- [x] Market trends dashboard ✅
-- [x] QR Codes for land listings ✅ (April 2025)
-- [x] Zone Alerts subscription system ✅ (April 2025)
-
-### P3 - Future (Completed ✅)
-- [x] Local languages: Pular, Maninka, Soussou ✅
-- [ ] N'Ko script support
-- [ ] Payment integration handled outside app (platform is intermediary only)
+---
 
 ## Tech Stack
-- Backend: FastAPI, Motor (async MongoDB), PyJWT, bcrypt, Resend, ReportLab
-- Frontend: React 19, React Router, i18next, React Map GL, Phosphor Icons
-- UI: Tailwind CSS, Shadcn UI
-- Database: MongoDB
-- Storage: Emergent Object Storage
+- **Backend**: FastAPI, MongoDB (Motor async), PyJWT, ReportLab, Resend, QRCode
+- **Frontend**: React 18, Tailwind CSS, Shadcn/UI, react-map-gl, i18next
+- **Auth**: Cookie-based JWT, Emergent Google OAuth
+- **Storage**: Emergent Object Storage
+
+---
+
+## P0 - Critical (Current)
+- [x] Clear secrets for GitHub push workflow
+
+## P1 - High Priority
+- [ ] Backend refactoring: Split server.py (3000+ lines) into modular routes
+- [ ] Twilio SMS activation (pending user API key)
+
+## P2 - Medium Priority  
+- [ ] Referral program system
+- [ ] N'Ko script / local language translations
+
+## P3 - Future Enhancements
+- [ ] Mobile native app
+- [ ] Offline transaction drafts
+- [ ] Land valuation AI
+
+---
+
+## Key Files
+- `/app/backend/server.py` - Main API (needs refactoring)
+- `/app/frontend/src/App.js` - Routes & layout
+- `/app/frontend/src/components/Navbar.js` - Mega menu
+- `/app/frontend/src/pages/MarketTrends.js` - Analytics dashboard
+- `/app/frontend/src/pages/LandComparison.js` - Comparison tool
+
+## Database Collections
+- `users`, `lands`, `transactions`, `zone_alerts`, `notifications`, `saved_searches`
+
+## Test Accounts
+- Admin: admin@guinealand.com / admin123
+- Buyer: buyer2@test.com / test123
+- Seller: seller@test.com / test123
+
+---
+
+## Critical Notes for Development
+1. **Auth**: Frontend uses cookie-based auth (`credentials: 'include'`). JWT not in React state.
+2. **PWA**: Offline mode disabled in preview environments to prevent false-positives.
+3. **Secrets Workflow**: Clear `.env` before GitHub push, restore after from SECRETS.md.
