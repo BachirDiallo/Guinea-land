@@ -11,6 +11,7 @@ import { EnhancedPriceComparison } from '../components/MarketPrices';
 import { TrustScoreCard, DuplicateAlertCard, CommunityVerifications, OwnershipHistory } from '../components/TrustSystem';
 import { RiskAssessmentCard, CadastreCheckCard, LandDisputesCard } from '../components/DueDiligence';
 import { TransactionSecuritySummary } from '../components/TransactionSecurity';
+import { BetterDecisionsSection } from '../components/BetterDecisions';
 import { toast } from 'sonner';
 import { 
   MapPin, 
@@ -260,6 +261,9 @@ export default function LandDetail() {
               landId={landId}
               isOwner={user?.user_id === land.owner_id}
             />
+
+            {/* Better Decisions - Phase 4 */}
+            <BetterDecisionsSection landId={landId} />
 
             {/* Key Info */}
             <div className="grid grid-cols-2 gap-4">

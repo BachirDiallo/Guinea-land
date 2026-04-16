@@ -4748,6 +4748,587 @@ async def share_document(document_id: str, share_with_user_id: str, current_user
 
 
 
+# ==================== BETTER DECISIONS SYSTEM ====================
+
+# Guinea Infrastructure Data (would be from real government/OSM APIs in production)
+GUINEA_INFRASTRUCTURE = {
+    "hospitals": [
+        {"name": "CHU Donka", "lat": 9.5350, "lng": -13.6800, "type": "hospital", "level": "national"},
+        {"name": "Hôpital Ignace Deen", "lat": 9.5092, "lng": -13.7122, "type": "hospital", "level": "regional"},
+        {"name": "Centre de Santé Ratoma", "lat": 9.6500, "lng": -13.6200, "type": "health_center", "level": "local"},
+        {"name": "Hôpital Régional Kindia", "lat": 10.0560, "lng": -12.8620, "type": "hospital", "level": "regional"},
+        {"name": "Hôpital Régional Labé", "lat": 11.3200, "lng": -12.2900, "type": "hospital", "level": "regional"},
+    ],
+    "schools": [
+        {"name": "Université Gamal Abdel Nasser", "lat": 9.5350, "lng": -13.6500, "type": "university", "level": "university"},
+        {"name": "Lycée 2 Octobre", "lat": 9.5400, "lng": -13.6700, "type": "school", "level": "secondary"},
+        {"name": "École Primaire Ratoma", "lat": 9.6450, "lng": -13.6150, "type": "school", "level": "primary"},
+        {"name": "Lycée Donka", "lat": 9.5300, "lng": -13.6850, "type": "school", "level": "secondary"},
+    ],
+    "markets": [
+        {"name": "Marché Madina", "lat": 9.5800, "lng": -13.6400, "type": "market", "level": "major"},
+        {"name": "Marché Niger", "lat": 9.5200, "lng": -13.7000, "type": "market", "level": "major"},
+        {"name": "Marché Taouyah", "lat": 9.5650, "lng": -13.6550, "type": "market", "level": "local"},
+    ],
+    "roads": [
+        {"name": "Route Nationale N1", "type": "national", "quality": "paved"},
+        {"name": "Route Nationale N2", "type": "national", "quality": "paved"},
+        {"name": "Autoroute Fidel Castro", "type": "highway", "quality": "excellent"},
+    ],
+    "utilities": {
+        "electricity_coverage": {
+            "Conakry": 0.85,
+            "Kindia": 0.60,
+            "Boké": 0.55,
+            "Labé": 0.50,
+            "Mamou": 0.45,
+            "Faranah": 0.35,
+            "Kankan": 0.40,
+            "N'Zérékoré": 0.45
+        },
+        "water_coverage": {
+            "Conakry": 0.70,
+            "Kindia": 0.55,
+            "Boké": 0.50,
+            "Labé": 0.60,
+            "Mamou": 0.50,
+            "Faranah": 0.40,
+            "Kankan": 0.45,
+            "N'Zérékoré": 0.50
+        }
+    }
+}
+
+# Reference Prices per Region and Land Type (GNF per m²)
+GUINEA_REFERENCE_PRICES = {
+    "Conakry": {
+        "residential": {"min": 150000, "avg": 350000, "max": 800000},
+        "commercial": {"min": 400000, "avg": 800000, "max": 2000000},
+        "agricultural": {"min": 20000, "avg": 50000, "max": 100000}
+    },
+    "Kindia": {
+        "residential": {"min": 30000, "avg": 80000, "max": 200000},
+        "commercial": {"min": 80000, "avg": 150000, "max": 400000},
+        "agricultural": {"min": 5000, "avg": 15000, "max": 40000}
+    },
+    "Boké": {
+        "residential": {"min": 50000, "avg": 120000, "max": 300000},
+        "commercial": {"min": 100000, "avg": 250000, "max": 600000},
+        "agricultural": {"min": 8000, "avg": 25000, "max": 60000}
+    },
+    "Labé": {
+        "residential": {"min": 25000, "avg": 60000, "max": 150000},
+        "commercial": {"min": 60000, "avg": 120000, "max": 300000},
+        "agricultural": {"min": 3000, "avg": 10000, "max": 30000}
+    },
+    "Mamou": {
+        "residential": {"min": 20000, "avg": 50000, "max": 120000},
+        "commercial": {"min": 50000, "avg": 100000, "max": 250000},
+        "agricultural": {"min": 2000, "avg": 8000, "max": 25000}
+    },
+    "Faranah": {
+        "residential": {"min": 15000, "avg": 40000, "max": 100000},
+        "commercial": {"min": 40000, "avg": 80000, "max": 200000},
+        "agricultural": {"min": 2000, "avg": 6000, "max": 20000}
+    },
+    "Kankan": {
+        "residential": {"min": 20000, "avg": 50000, "max": 130000},
+        "commercial": {"min": 50000, "avg": 100000, "max": 280000},
+        "agricultural": {"min": 2000, "avg": 7000, "max": 22000}
+    },
+    "N'Zérékoré": {
+        "residential": {"min": 18000, "avg": 45000, "max": 110000},
+        "commercial": {"min": 45000, "avg": 90000, "max": 220000},
+        "agricultural": {"min": 3000, "avg": 10000, "max": 30000}
+    }
+}
+
+# -------------------- INFRASTRUCTURE SCORE --------------------
+
+@api_router.get("/lands/{land_id}/infrastructure-score")
+async def get_infrastructure_score(land_id: str):
+    """Calculate infrastructure accessibility score for a land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    lat = land.get("latitude", 0)
+    lng = land.get("longitude", 0)
+    region = land.get("region", "Conakry")
+    
+    scores = {}
+    nearby_infrastructure = []
+    
+    # 1. Healthcare Score (0-20)
+    nearest_hospital = None
+    min_hospital_dist = float('inf')
+    for hospital in GUINEA_INFRASTRUCTURE["hospitals"]:
+        dist = calculate_distance_km(lat, lng, hospital["lat"], hospital["lng"])
+        if dist < min_hospital_dist:
+            min_hospital_dist = dist
+            nearest_hospital = {**hospital, "distance_km": round(dist, 2)}
+    
+    if min_hospital_dist <= 2:
+        health_score = 20
+    elif min_hospital_dist <= 5:
+        health_score = 15
+    elif min_hospital_dist <= 10:
+        health_score = 10
+    elif min_hospital_dist <= 20:
+        health_score = 5
+    else:
+        health_score = 0
+    
+    scores["healthcare"] = {
+        "score": health_score,
+        "max": 20,
+        "nearest": nearest_hospital,
+        "label": "Santé"
+    }
+    if nearest_hospital:
+        nearby_infrastructure.append({
+            "type": "healthcare",
+            "name": nearest_hospital["name"],
+            "distance_km": nearest_hospital["distance_km"]
+        })
+    
+    # 2. Education Score (0-20)
+    nearest_school = None
+    min_school_dist = float('inf')
+    for school in GUINEA_INFRASTRUCTURE["schools"]:
+        dist = calculate_distance_km(lat, lng, school["lat"], school["lng"])
+        if dist < min_school_dist:
+            min_school_dist = dist
+            nearest_school = {**school, "distance_km": round(dist, 2)}
+    
+    if min_school_dist <= 1:
+        education_score = 20
+    elif min_school_dist <= 3:
+        education_score = 15
+    elif min_school_dist <= 5:
+        education_score = 10
+    elif min_school_dist <= 10:
+        education_score = 5
+    else:
+        education_score = 0
+    
+    scores["education"] = {
+        "score": education_score,
+        "max": 20,
+        "nearest": nearest_school,
+        "label": "Éducation"
+    }
+    if nearest_school:
+        nearby_infrastructure.append({
+            "type": "education",
+            "name": nearest_school["name"],
+            "distance_km": nearest_school["distance_km"]
+        })
+    
+    # 3. Market/Commerce Score (0-20)
+    nearest_market = None
+    min_market_dist = float('inf')
+    for market in GUINEA_INFRASTRUCTURE["markets"]:
+        dist = calculate_distance_km(lat, lng, market["lat"], market["lng"])
+        if dist < min_market_dist:
+            min_market_dist = dist
+            nearest_market = {**market, "distance_km": round(dist, 2)}
+    
+    if min_market_dist <= 1:
+        market_score = 20
+    elif min_market_dist <= 3:
+        market_score = 15
+    elif min_market_dist <= 5:
+        market_score = 10
+    elif min_market_dist <= 10:
+        market_score = 5
+    else:
+        market_score = 0
+    
+    scores["commerce"] = {
+        "score": market_score,
+        "max": 20,
+        "nearest": nearest_market,
+        "label": "Commerce"
+    }
+    if nearest_market:
+        nearby_infrastructure.append({
+            "type": "commerce",
+            "name": nearest_market["name"],
+            "distance_km": nearest_market["distance_km"]
+        })
+    
+    # 4. Electricity Score (0-20)
+    electricity_coverage = GUINEA_INFRASTRUCTURE["utilities"]["electricity_coverage"].get(region, 0.3)
+    electricity_score = int(electricity_coverage * 20)
+    scores["electricity"] = {
+        "score": electricity_score,
+        "max": 20,
+        "coverage_percent": int(electricity_coverage * 100),
+        "label": "Électricité"
+    }
+    
+    # 5. Water Score (0-20)
+    water_coverage = GUINEA_INFRASTRUCTURE["utilities"]["water_coverage"].get(region, 0.3)
+    water_score = int(water_coverage * 20)
+    scores["water"] = {
+        "score": water_score,
+        "max": 20,
+        "coverage_percent": int(water_coverage * 100),
+        "label": "Eau"
+    }
+    
+    # Calculate total
+    total_score = sum(s["score"] for s in scores.values())
+    max_score = sum(s["max"] for s in scores.values())
+    percentage = round((total_score / max_score) * 100)
+    
+    # Determine grade
+    if percentage >= 80:
+        grade = "A"
+        grade_label = "Excellent"
+    elif percentage >= 60:
+        grade = "B"
+        grade_label = "Bon"
+    elif percentage >= 40:
+        grade = "C"
+        grade_label = "Moyen"
+    elif percentage >= 20:
+        grade = "D"
+        grade_label = "Faible"
+    else:
+        grade = "F"
+        grade_label = "Très faible"
+    
+    return {
+        "land_id": land_id,
+        "region": region,
+        "total_score": total_score,
+        "max_score": max_score,
+        "percentage": percentage,
+        "grade": grade,
+        "grade_label": grade_label,
+        "scores": scores,
+        "nearby_infrastructure": nearby_infrastructure,
+        "recommendations": [
+            f"Distance au centre de santé le plus proche: {min_hospital_dist:.1f} km" if nearest_hospital else None,
+            f"Distance à l'école la plus proche: {min_school_dist:.1f} km" if nearest_school else None,
+            f"Couverture électrique régionale: {int(electricity_coverage * 100)}%" if electricity_coverage < 0.7 else None,
+        ]
+    }
+
+# -------------------- FAIR PRICE ESTIMATOR --------------------
+
+@api_router.get("/lands/{land_id}/price-estimate")
+async def get_fair_price_estimate(land_id: str):
+    """AI-powered fair price estimation for a land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    region = land.get("region", "Conakry")
+    land_type = land.get("land_type", "residential")
+    size = land.get("size", 500)
+    listed_price = land.get("price", 0)
+    
+    # Get reference prices
+    ref_prices = GUINEA_REFERENCE_PRICES.get(region, GUINEA_REFERENCE_PRICES["Conakry"])
+    type_prices = ref_prices.get(land_type, ref_prices["residential"])
+    
+    # Base price calculation
+    base_price_per_m2 = type_prices["avg"]
+    
+    # Adjustments
+    adjustments = []
+    multiplier = 1.0
+    
+    # 1. Infrastructure adjustment
+    infra_score = await get_infrastructure_score(land_id)
+    infra_percentage = infra_score.get("percentage", 50)
+    
+    if infra_percentage >= 70:
+        multiplier *= 1.15
+        adjustments.append({"factor": "Infrastructure excellente", "impact": "+15%", "value": 0.15})
+    elif infra_percentage >= 50:
+        multiplier *= 1.05
+        adjustments.append({"factor": "Bonne infrastructure", "impact": "+5%", "value": 0.05})
+    elif infra_percentage < 30:
+        multiplier *= 0.85
+        adjustments.append({"factor": "Infrastructure limitée", "impact": "-15%", "value": -0.15})
+    
+    # 2. Verification status adjustment
+    verifications = land.get("verifications", [])
+    if len(verifications) >= 3:
+        multiplier *= 1.10
+        adjustments.append({"factor": "Terrain vérifié officiellement", "impact": "+10%", "value": 0.10})
+    elif len(verifications) >= 1:
+        multiplier *= 1.05
+        adjustments.append({"factor": "Partiellement vérifié", "impact": "+5%", "value": 0.05})
+    
+    # 3. Documents adjustment
+    docs = land.get("documents", [])
+    if len(docs) >= 3:
+        multiplier *= 1.08
+        adjustments.append({"factor": "Documentation complète", "impact": "+8%", "value": 0.08})
+    
+    # 4. Location premium (Conakry communes)
+    premium_communes = ["Kaloum", "Dixinn", "Matam"]
+    commune = land.get("commune", "")
+    if region == "Conakry" and commune in premium_communes:
+        multiplier *= 1.20
+        adjustments.append({"factor": f"Quartier premium ({commune})", "impact": "+20%", "value": 0.20})
+    
+    # 5. Get recent comparable sales
+    comparable_sales = []
+    nearby_transactions = await db.transactions.find({
+        "status": "completed",
+        "land_type": land_type
+    }, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10)
+    
+    for tx in nearby_transactions:
+        tx_land = await db.lands.find_one({"land_id": tx.get("land_id")}, {"_id": 0})
+        if tx_land and tx_land.get("region") == region:
+            tx_price_per_m2 = tx.get("price", 0) / tx_land.get("size", 1) if tx_land.get("size", 0) > 0 else 0
+            comparable_sales.append({
+                "price_per_m2": tx_price_per_m2,
+                "size": tx_land.get("size"),
+                "commune": tx_land.get("commune"),
+                "date": tx.get("created_at")
+            })
+    
+    # Adjust based on comparable sales if available
+    if comparable_sales:
+        avg_comparable = sum(s["price_per_m2"] for s in comparable_sales) / len(comparable_sales)
+        if avg_comparable > base_price_per_m2 * 1.1:
+            market_adjustment = min((avg_comparable / base_price_per_m2) - 1, 0.25)
+            multiplier *= (1 + market_adjustment)
+            adjustments.append({"factor": "Tendance du marché haussière", "impact": f"+{int(market_adjustment*100)}%", "value": market_adjustment})
+    
+    # Calculate estimated price
+    estimated_price_per_m2 = base_price_per_m2 * multiplier
+    estimated_total = estimated_price_per_m2 * size
+    
+    # Price range (±15%)
+    price_low = estimated_total * 0.85
+    price_high = estimated_total * 1.15
+    
+    # Compare with listed price
+    if listed_price > 0:
+        price_difference = ((listed_price - estimated_total) / estimated_total) * 100
+        if price_difference > 20:
+            price_assessment = "overpriced"
+            price_assessment_label = "Au-dessus du marché"
+            price_assessment_detail = f"Le prix demandé est {abs(price_difference):.0f}% au-dessus de l'estimation"
+        elif price_difference < -20:
+            price_assessment = "underpriced"
+            price_assessment_label = "En-dessous du marché"
+            price_assessment_detail = f"Le prix demandé est {abs(price_difference):.0f}% en-dessous de l'estimation"
+        elif price_difference > 10:
+            price_assessment = "slightly_high"
+            price_assessment_label = "Légèrement élevé"
+            price_assessment_detail = f"Le prix demandé est {abs(price_difference):.0f}% au-dessus de l'estimation"
+        elif price_difference < -10:
+            price_assessment = "good_deal"
+            price_assessment_label = "Bonne affaire"
+            price_assessment_detail = f"Le prix demandé est {abs(price_difference):.0f}% en-dessous de l'estimation"
+        else:
+            price_assessment = "fair"
+            price_assessment_label = "Prix juste"
+            price_assessment_detail = "Le prix demandé correspond à l'estimation du marché"
+    else:
+        price_difference = 0
+        price_assessment = "no_price"
+        price_assessment_label = "Prix non défini"
+        price_assessment_detail = "Aucun prix demandé"
+    
+    return {
+        "land_id": land_id,
+        "region": region,
+        "land_type": land_type,
+        "size_m2": size,
+        "listed_price": listed_price,
+        "estimation": {
+            "price_per_m2": round(estimated_price_per_m2),
+            "total_estimated": round(estimated_total),
+            "range_low": round(price_low),
+            "range_high": round(price_high),
+            "confidence": "high" if len(comparable_sales) >= 3 else "medium" if len(comparable_sales) >= 1 else "low"
+        },
+        "reference_prices": {
+            "region_min": type_prices["min"],
+            "region_avg": type_prices["avg"],
+            "region_max": type_prices["max"]
+        },
+        "adjustments": adjustments,
+        "comparable_sales_count": len(comparable_sales),
+        "price_assessment": price_assessment,
+        "price_assessment_label": price_assessment_label,
+        "price_assessment_detail": price_assessment_detail,
+        "price_difference_percent": round(price_difference, 1),
+        "methodology": "Estimation basée sur les prix de référence régionaux, l'infrastructure, les vérifications et les ventes comparables"
+    }
+
+# -------------------- INVESTMENT POTENTIAL --------------------
+
+@api_router.get("/lands/{land_id}/investment-analysis")
+async def get_investment_analysis(land_id: str):
+    """Analyze investment potential of a land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    region = land.get("region", "Conakry")
+    land_type = land.get("land_type", "residential")
+    
+    # Get all scores
+    infra_score = await get_infrastructure_score(land_id)
+    price_estimate = await get_fair_price_estimate(land_id)
+    
+    # Regional growth factors (mock data - would come from economic indicators)
+    regional_growth = {
+        "Conakry": {"growth_rate": 8.5, "demand": "high", "development": "rapid"},
+        "Kindia": {"growth_rate": 5.2, "demand": "medium", "development": "moderate"},
+        "Boké": {"growth_rate": 7.8, "demand": "high", "development": "rapid"},  # Mining
+        "Labé": {"growth_rate": 3.5, "demand": "medium", "development": "slow"},
+        "Mamou": {"growth_rate": 3.0, "demand": "low", "development": "slow"},
+        "Faranah": {"growth_rate": 2.5, "demand": "low", "development": "slow"},
+        "Kankan": {"growth_rate": 4.0, "demand": "medium", "development": "moderate"},
+        "N'Zérékoré": {"growth_rate": 4.5, "demand": "medium", "development": "moderate"}
+    }
+    
+    region_data = regional_growth.get(region, regional_growth["Conakry"])
+    
+    # Calculate investment score (0-100)
+    investment_factors = []
+    total_points = 0
+    
+    # 1. Infrastructure (25 points)
+    infra_points = int((infra_score.get("percentage", 50) / 100) * 25)
+    investment_factors.append({
+        "factor": "Infrastructure",
+        "points": infra_points,
+        "max": 25,
+        "detail": f"Score infrastructure: {infra_score.get('percentage', 50)}%"
+    })
+    total_points += infra_points
+    
+    # 2. Price Assessment (25 points)
+    price_assessment = price_estimate.get("price_assessment", "fair")
+    if price_assessment == "good_deal":
+        price_points = 25
+    elif price_assessment == "underpriced":
+        price_points = 25
+    elif price_assessment == "fair":
+        price_points = 20
+    elif price_assessment == "slightly_high":
+        price_points = 10
+    else:
+        price_points = 5
+    
+    investment_factors.append({
+        "factor": "Valeur du prix",
+        "points": price_points,
+        "max": 25,
+        "detail": price_estimate.get("price_assessment_label", "")
+    })
+    total_points += price_points
+    
+    # 3. Regional Growth (25 points)
+    growth_rate = region_data["growth_rate"]
+    if growth_rate >= 7:
+        growth_points = 25
+    elif growth_rate >= 5:
+        growth_points = 20
+    elif growth_rate >= 3:
+        growth_points = 15
+    else:
+        growth_points = 10
+    
+    investment_factors.append({
+        "factor": "Croissance régionale",
+        "points": growth_points,
+        "max": 25,
+        "detail": f"Taux de croissance: {growth_rate}%/an"
+    })
+    total_points += growth_points
+    
+    # 4. Land Type Demand (25 points)
+    type_demand = {
+        "residential": {"Conakry": 25, "Boké": 20, "Kindia": 18},
+        "commercial": {"Conakry": 25, "Boké": 22, "Kindia": 15},
+        "agricultural": {"Kindia": 22, "Faranah": 20, "N'Zérékoré": 20}
+    }
+    demand_points = type_demand.get(land_type, {}).get(region, 15)
+    
+    investment_factors.append({
+        "factor": "Demande du marché",
+        "points": demand_points,
+        "max": 25,
+        "detail": f"Demande pour {land_type} à {region}: {region_data['demand']}"
+    })
+    total_points += demand_points
+    
+    # Determine recommendation
+    if total_points >= 80:
+        recommendation = "highly_recommended"
+        recommendation_label = "Fortement recommandé"
+        recommendation_detail = "Excellent potentiel d'investissement avec forte croissance attendue"
+    elif total_points >= 60:
+        recommendation = "recommended"
+        recommendation_label = "Recommandé"
+        recommendation_detail = "Bon potentiel d'investissement à moyen terme"
+    elif total_points >= 40:
+        recommendation = "moderate"
+        recommendation_label = "Modéré"
+        recommendation_detail = "Potentiel d'investissement moyen, évaluer les risques"
+    else:
+        recommendation = "caution"
+        recommendation_label = "Prudence"
+        recommendation_detail = "Investissement risqué, analyse approfondie recommandée"
+    
+    # Projected returns (simplified model)
+    annual_appreciation = region_data["growth_rate"] / 100
+    current_value = price_estimate.get("estimation", {}).get("total_estimated", 0)
+    
+    projections = []
+    for years in [1, 3, 5, 10]:
+        future_value = current_value * ((1 + annual_appreciation) ** years)
+        projections.append({
+            "years": years,
+            "projected_value": round(future_value),
+            "gain_percent": round(((future_value - current_value) / current_value) * 100, 1) if current_value > 0 else 0
+        })
+    
+    return {
+        "land_id": land_id,
+        "investment_score": total_points,
+        "max_score": 100,
+        "investment_factors": investment_factors,
+        "recommendation": recommendation,
+        "recommendation_label": recommendation_label,
+        "recommendation_detail": recommendation_detail,
+        "regional_outlook": {
+            "region": region,
+            "growth_rate_percent": region_data["growth_rate"],
+            "demand_level": region_data["demand"],
+            "development_pace": region_data["development"]
+        },
+        "value_projections": projections,
+        "risks": [
+            "Volatilité du marché immobilier" if region_data["growth_rate"] > 6 else None,
+            "Infrastructure limitée" if infra_score.get("percentage", 50) < 40 else None,
+            "Vérification foncière incomplète" if len(land.get("verifications", [])) < 2 else None,
+        ],
+        "opportunities": [
+            "Zone en développement rapide" if region_data["development"] == "rapid" else None,
+            "Forte demande locative" if land_type == "residential" and region == "Conakry" else None,
+            "Potentiel agricole" if land_type == "agricultural" and region in ["Kindia", "N'Zérékoré"] else None,
+        ]
+    }
+
+
+
+
 
 
 

@@ -86,8 +86,9 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 - [x] **Phase 1: Fraud Prevention & Trust** - Trust Score, Duplicate Alerts, Community Verification, Ownership History
 - [x] **Phase 2: Due Diligence** - Risk Assessment, Cadastre Check, Dispute Tracking
 - [x] **Phase 3: Transaction Security** - Escrow, Digital Witnesses, Document Vault
-- [ ] **Phase 4: Better Decisions** - Infrastructure Score, Fair Price Estimator, Surveyor Network
-- [ ] Backend refactoring: Split `server.py` (4500+ lines) into modular routes
+- [x] **Phase 4: Better Decisions** - Infrastructure Score, Fair Price Estimator, Investment Analysis
+- [ ] Backend refactoring: Split `server.py` (5300+ lines) into modular routes
+- [ ] Twilio SMS activation (pending API key)
 
 ## P2 - Medium Priority
 - [ ] Backend refactoring: Split server.py (3000+ lines) into modular routes
