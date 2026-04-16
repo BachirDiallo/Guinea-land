@@ -25,6 +25,9 @@ from reportlab.lib.units import cm, mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import qrcode
+import hashlib
+import json
+
 from twilio.rest import Client as TwilioClient
 
 ROOT_DIR = Path(__file__).parent
@@ -3393,6 +3396,1360 @@ async def get_sms_status():
         "configured": twilio_client is not None,
         "provider": "twilio" if twilio_client else None
     }
+
+
+
+# ==================== FRAUD PREVENTION & TRUST SYSTEM ====================
+
+def generate_land_fingerprint(latitude: float, longitude: float, size: float) -> str:
+    """Generate unique fingerprint for land based on location and size"""
+    # Round coordinates to ~10m precision to catch near-duplicates
+    lat_rounded = round(latitude, 4)
+    lng_rounded = round(longitude, 4)
+    size_rounded = round(size, -1)  # Round to nearest 10
+    
+    data = f"{lat_rounded}:{lng_rounded}:{size_rounded}"
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+# -------------------- ANTI-DOUBLE SALE SYSTEM --------------------
+
+class DuplicateCheckResult(BaseModel):
+    is_duplicate: bool = False
+    similar_lands: List[dict] = []
+    risk_level: str = "low"  # low, medium, high, critical
+    warnings: List[str] = []
+
+@api_router.post("/lands/check-duplicate")
+async def check_duplicate_land(
+    latitude: float,
+    longitude: float,
+    size: float,
+    exclude_land_id: Optional[str] = None
+):
+    """Check if a land listing might be a duplicate of existing listings"""
+    fingerprint = generate_land_fingerprint(latitude, longitude, size)
+    
+    # Find lands with same fingerprint
+    query = {"land_fingerprint": fingerprint}
+    if exclude_land_id:
+        query["land_id"] = {"$ne": exclude_land_id}
+    
+    exact_matches = await db.lands.find(query, {"_id": 0}).to_list(10)
+    
+    # Also check for nearby lands (within 100m)
+    import math
+    lat_diff = 0.001  # ~111m
+    lng_diff = 0.001 / math.cos(math.radians(latitude))
+    
+    nearby_query = {
+        "latitude": {"$gte": latitude - lat_diff, "$lte": latitude + lat_diff},
+        "longitude": {"$gte": longitude - lng_diff, "$lte": longitude + lng_diff},
+    }
+    if exclude_land_id:
+        nearby_query["land_id"] = {"$ne": exclude_land_id}
+    
+    nearby_lands = await db.lands.find(nearby_query, {"_id": 0}).to_list(20)
+    
+    # Calculate risk level
+    warnings = []
+    risk_level = "low"
+    
+    if exact_matches:
+        risk_level = "critical"
+        warnings.append(f"⚠️ {len(exact_matches)} terrain(s) avec les mêmes coordonnées exactes trouvé(s)")
+    
+    if len(nearby_lands) > 0:
+        if risk_level != "critical":
+            risk_level = "high" if len(nearby_lands) > 2 else "medium"
+        warnings.append(f"📍 {len(nearby_lands)} terrain(s) à moins de 100m de cet emplacement")
+    
+    # Check for recent sales at this location
+    recent_transactions = await db.transactions.find({
+        "status": "completed",
+        "land_id": {"$in": [land_item["land_id"] for land_item in nearby_lands]}
+    }, {"_id": 0}).to_list(10)
+    
+    if recent_transactions:
+        if risk_level in ["low", "medium"]:
+            risk_level = "high"
+        warnings.append(f"💰 {len(recent_transactions)} transaction(s) récente(s) à cet emplacement")
+    
+    similar_lands = []
+    for land in nearby_lands:
+        distance = math.sqrt(
+            ((land.get("latitude", 0) - latitude) * 111000) ** 2 +
+            ((land.get("longitude", 0) - longitude) * 111000 * math.cos(math.radians(latitude))) ** 2
+        )
+        similar_lands.append({
+            "land_id": land.get("land_id"),
+            "title": land.get("title"),
+            "status": land.get("status"),
+            "owner_id": land.get("owner_id"),
+            "distance_meters": round(distance, 1),
+            "size": land.get("size"),
+            "price": land.get("price")
+        })
+    
+    return {
+        "is_duplicate": len(exact_matches) > 0,
+        "similar_lands": sorted(similar_lands, key=lambda x: x["distance_meters"]),
+        "risk_level": risk_level,
+        "warnings": warnings,
+        "fingerprint": fingerprint
+    }
+
+@api_router.get("/lands/{land_id}/duplicate-alerts")
+async def get_land_duplicate_alerts(land_id: str):
+    """Get duplicate/conflict alerts for a specific land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    return await check_duplicate_land(
+        latitude=land.get("latitude", 0),
+        longitude=land.get("longitude", 0),
+        size=land.get("size", 0),
+        exclude_land_id=land_id
+    )
+
+# -------------------- COMMUNITY VERIFICATION SYSTEM --------------------
+
+class CommunityVerificationRequest(BaseModel):
+    land_id: str
+    verifier_type: str  # neighbor, chief, notable, surveyor
+    verifier_name: str
+    verifier_phone: str
+    verifier_address: Optional[str] = None
+    relationship: str  # e.g., "voisin direct", "chef de quartier", "ancien propriétaire"
+    
+class CommunityVerificationSubmission(BaseModel):
+    request_id: str
+    verification_code: str
+    confirms_ownership: bool
+    confirms_boundaries: bool
+    knows_disputes: bool
+    dispute_details: Optional[str] = None
+    additional_notes: Optional[str] = None
+    evidence_photos: List[str] = []
+    evidence_video: Optional[str] = None
+
+@api_router.post("/lands/{land_id}/verification-request")
+async def request_community_verification(land_id: str, request: CommunityVerificationRequest, current_user: dict = Depends(get_current_user)):
+    """Request verification from a community member (neighbor, chief, etc.)"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Generate verification code
+    verification_code = str(uuid.uuid4())[:8].upper()
+    
+    verification_request = {
+        "request_id": f"vreq_{uuid.uuid4().hex[:12]}",
+        "land_id": land_id,
+        "requested_by": current_user["user_id"],
+        "verifier_type": request.verifier_type,
+        "verifier_name": request.verifier_name,
+        "verifier_phone": request.verifier_phone,
+        "verifier_address": request.verifier_address,
+        "relationship": request.relationship,
+        "verification_code": verification_code,
+        "status": "pending",  # pending, submitted, verified, rejected
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "submitted_at": None,
+        "verification_data": None
+    }
+    
+    await db.verification_requests.insert_one(verification_request)
+    
+    # TODO: Send SMS with verification code to verifier
+    
+    return {
+        "request_id": verification_request["request_id"],
+        "verification_code": verification_code,
+        "message": f"Demande de vérification envoyée à {request.verifier_name}",
+        "instructions": f"Le vérificateur doit utiliser le code {verification_code} pour soumettre sa vérification"
+    }
+
+@api_router.post("/verification/submit")
+async def submit_community_verification(submission: CommunityVerificationSubmission):
+    """Submit a community verification (by the verifier)"""
+    # Find the verification request
+    request = await db.verification_requests.find_one({
+        "request_id": submission.request_id,
+        "verification_code": submission.verification_code
+    }, {"_id": 0})
+    
+    if not request:
+        raise HTTPException(status_code=404, detail="Demande de vérification non trouvée ou code invalide")
+    
+    if request["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Cette vérification a déjà été soumise")
+    
+    # Update the request with verification data
+    verification_data = {
+        "confirms_ownership": submission.confirms_ownership,
+        "confirms_boundaries": submission.confirms_boundaries,
+        "knows_disputes": submission.knows_disputes,
+        "dispute_details": submission.dispute_details,
+        "additional_notes": submission.additional_notes,
+        "evidence_photos": submission.evidence_photos,
+        "evidence_video": submission.evidence_video,
+        "submitted_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Determine status based on submission
+    status = "verified" if submission.confirms_ownership and submission.confirms_boundaries and not submission.knows_disputes else "flagged"
+    
+    await db.verification_requests.update_one(
+        {"request_id": submission.request_id},
+        {
+            "$set": {
+                "status": status,
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+                "verification_data": verification_data
+            }
+        }
+    )
+    
+    # Update land verification count
+    await db.lands.update_one(
+        {"land_id": request["land_id"]},
+        {
+            "$inc": {"community_verifications_count": 1},
+            "$push": {
+                "community_verifications": {
+                    "request_id": submission.request_id,
+                    "verifier_type": request["verifier_type"],
+                    "status": status,
+                    "date": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        }
+    )
+    
+    return {
+        "status": status,
+        "message": "Vérification soumise avec succès" if status == "verified" else "Vérification soumise - Signalement ajouté"
+    }
+
+@api_router.get("/lands/{land_id}/community-verifications")
+async def get_land_community_verifications(land_id: str):
+    """Get all community verifications for a land"""
+    verifications = await db.verification_requests.find(
+        {"land_id": land_id},
+        {"_id": 0, "verification_code": 0}
+    ).to_list(50)
+    
+    # Calculate trust score
+    total = len(verifications)
+    verified = len([v for v in verifications if v.get("status") == "verified"])
+    flagged = len([v for v in verifications if v.get("status") == "flagged"])
+    
+    if total == 0:
+        trust_score = None
+        trust_level = "non_verified"
+    else:
+        trust_score = round((verified / total) * 100) if total > 0 else 0
+        if flagged > 0:
+            trust_level = "disputed"
+        elif verified >= 3:
+            trust_level = "highly_trusted"
+        elif verified >= 1:
+            trust_level = "verified"
+        else:
+            trust_level = "pending"
+    
+    return {
+        "land_id": land_id,
+        "total_verifications": total,
+        "verified_count": verified,
+        "flagged_count": flagged,
+        "pending_count": len([v for v in verifications if v.get("status") == "pending"]),
+        "trust_score": trust_score,
+        "trust_level": trust_level,
+        "verifications": verifications
+    }
+
+# -------------------- OWNERSHIP HISTORY / CHAIN --------------------
+
+class OwnershipTransfer(BaseModel):
+    land_id: str
+    previous_owner_name: str
+    previous_owner_id: Optional[str] = None
+    new_owner_name: str
+    new_owner_id: Optional[str] = None
+    transfer_date: str
+    transfer_type: str  # sale, inheritance, donation, court_order
+    price: Optional[float] = None
+    witnesses: List[str] = []
+    documents: List[str] = []
+    notes: Optional[str] = None
+
+@api_router.post("/lands/{land_id}/ownership-history")
+async def add_ownership_history(land_id: str, transfer: OwnershipTransfer, current_user: dict = Depends(get_current_user)):
+    """Add historical ownership record (for building ownership chain)"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Only owner or admin can add history
+    if land.get("owner_id") != current_user["user_id"] and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Non autorisé")
+    
+    history_entry = {
+        "history_id": f"hist_{uuid.uuid4().hex[:12]}",
+        "land_id": land_id,
+        "previous_owner_name": transfer.previous_owner_name,
+        "previous_owner_id": transfer.previous_owner_id,
+        "new_owner_name": transfer.new_owner_name,
+        "new_owner_id": transfer.new_owner_id,
+        "transfer_date": transfer.transfer_date,
+        "transfer_type": transfer.transfer_type,
+        "price": transfer.price,
+        "witnesses": transfer.witnesses,
+        "documents": transfer.documents,
+        "notes": transfer.notes,
+        "added_by": current_user["user_id"],
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "verified": False
+    }
+    
+    await db.ownership_history.insert_one(history_entry)
+    
+    return {
+        "history_id": history_entry["history_id"],
+        "message": "Historique de propriété ajouté"
+    }
+
+@api_router.get("/lands/{land_id}/ownership-history")
+async def get_ownership_history(land_id: str):
+    """Get complete ownership chain for a land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Get historical records
+    history = await db.ownership_history.find(
+        {"land_id": land_id},
+        {"_id": 0}
+    ).sort("transfer_date", 1).to_list(100)
+    
+    # Get transactions (actual platform transactions)
+    transactions = await db.transactions.find(
+        {"land_id": land_id, "status": "completed"},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(100)
+    
+    # Build complete chain
+    chain = []
+    
+    # Add historical entries
+    for h in history:
+        chain.append({
+            "type": "historical",
+            "date": h.get("transfer_date"),
+            "from": h.get("previous_owner_name"),
+            "to": h.get("new_owner_name"),
+            "transfer_type": h.get("transfer_type"),
+            "price": h.get("price"),
+            "verified": h.get("verified", False),
+            "documents_count": len(h.get("documents", [])),
+            "witnesses_count": len(h.get("witnesses", []))
+        })
+    
+    # Add platform transactions
+    for t in transactions:
+        buyer = await db.users.find_one({"user_id": t.get("buyer_id")}, {"_id": 0, "name": 1})
+        seller = await db.users.find_one({"user_id": t.get("seller_id")}, {"_id": 0, "name": 1})
+        chain.append({
+            "type": "platform",
+            "date": t.get("completed_at") or t.get("created_at"),
+            "from": seller.get("name") if seller else "Inconnu",
+            "to": buyer.get("name") if buyer else "Inconnu",
+            "transfer_type": "sale",
+            "price": t.get("price"),
+            "verified": True,  # Platform transactions are verified
+            "transaction_id": t.get("transaction_id")
+        })
+    
+    # Sort by date
+    chain.sort(key=lambda x: x.get("date", ""))
+    
+    # Current owner
+    current_owner = await db.users.find_one({"user_id": land.get("owner_id")}, {"_id": 0, "name": 1, "verified": 1})
+    
+    return {
+        "land_id": land_id,
+        "current_owner": {
+            "name": current_owner.get("name") if current_owner else "Inconnu",
+            "verified": current_owner.get("verified", False) if current_owner else False
+        },
+        "chain_length": len(chain),
+        "ownership_chain": chain,
+        "has_gaps": False,  # TODO: Implement gap detection
+        "risk_flags": []
+    }
+
+# -------------------- LAND TRUST SCORE --------------------
+
+@api_router.get("/lands/{land_id}/trust-score")
+async def get_land_trust_score(land_id: str):
+    """Calculate comprehensive trust score for a land"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    score_components = {}
+    warnings = []
+    
+    # 1. Official Verification (0-25 points)
+    official_verifications = land.get("verifications", [])
+    official_score = min(len(official_verifications) * 8, 25)
+    score_components["official_verification"] = {
+        "score": official_score,
+        "max": 25,
+        "details": f"{len(official_verifications)} vérification(s) officielle(s)"
+    }
+    
+    # 2. Community Verification (0-25 points)
+    verifications = await get_land_community_verifications(land_id)
+    community_score = 0
+    if verifications["trust_level"] == "highly_trusted":
+        community_score = 25
+    elif verifications["trust_level"] == "verified":
+        community_score = 15
+    elif verifications["trust_level"] == "pending":
+        community_score = 5
+    elif verifications["trust_level"] == "disputed":
+        community_score = 0
+        warnings.append("⚠️ Des vérificateurs ont signalé des problèmes")
+    
+    score_components["community_verification"] = {
+        "score": community_score,
+        "max": 25,
+        "details": f"{verifications['verified_count']} vérification(s) communautaire(s)"
+    }
+    
+    # 3. Ownership History (0-20 points)
+    history = await get_ownership_history(land_id)
+    history_score = min(len(history["ownership_chain"]) * 5, 15)
+    if history["chain_length"] > 0:
+        history_score += 5  # Bonus for having any history
+    
+    score_components["ownership_history"] = {
+        "score": history_score,
+        "max": 20,
+        "details": f"Chaîne de {history['chain_length']} propriétaire(s)"
+    }
+    
+    # 4. Document Quality (0-15 points)
+    docs = land.get("documents", [])
+    photos = land.get("photos", [])
+    doc_score = min(len(docs) * 3 + len(photos) * 1, 15)
+    
+    score_components["documentation"] = {
+        "score": doc_score,
+        "max": 15,
+        "details": f"{len(docs)} document(s), {len(photos)} photo(s)"
+    }
+    
+    # 5. Duplicate Risk (0-15 points, deducted)
+    duplicate_check = await get_land_duplicate_alerts(land_id)
+    duplicate_penalty = 0
+    if duplicate_check["risk_level"] == "critical":
+        duplicate_penalty = 15
+        warnings.append("🚨 Risque critique de doublon détecté")
+    elif duplicate_check["risk_level"] == "high":
+        duplicate_penalty = 10
+        warnings.append("⚠️ Risque élevé de conflit territorial")
+    elif duplicate_check["risk_level"] == "medium":
+        duplicate_penalty = 5
+    
+    no_duplicate_score = 15 - duplicate_penalty
+    score_components["no_duplicates"] = {
+        "score": no_duplicate_score,
+        "max": 15,
+        "details": f"Niveau de risque: {duplicate_check['risk_level']}"
+    }
+    
+    # Calculate total
+    total_score = sum(c["score"] for c in score_components.values())
+    max_score = sum(c["max"] for c in score_components.values())
+    
+    # Determine trust level
+    percentage = (total_score / max_score) * 100
+    if percentage >= 80:
+        trust_level = "excellent"
+        trust_label = "Très fiable"
+    elif percentage >= 60:
+        trust_level = "good"
+        trust_label = "Fiable"
+    elif percentage >= 40:
+        trust_level = "moderate"
+        trust_label = "Modéré"
+    elif percentage >= 20:
+        trust_level = "low"
+        trust_label = "Faible"
+    else:
+        trust_level = "very_low"
+        trust_label = "Très faible"
+    
+    return {
+        "land_id": land_id,
+        "total_score": total_score,
+        "max_score": max_score,
+        "percentage": round(percentage),
+        "trust_level": trust_level,
+        "trust_label": trust_label,
+        "components": score_components,
+        "warnings": warnings,
+        "recommendations": [
+            "Ajoutez plus de documents officiels" if doc_score < 10 else None,
+            "Demandez des vérifications communautaires" if community_score < 15 else None,
+            "Complétez l'historique de propriété" if history_score < 10 else None,
+        ]
+    }
+
+
+# ==================== DUE DILIGENCE SYSTEM ====================
+
+# Guinea Government Infrastructure Projects (Mock Data - would be from real API)
+GUINEA_INFRASTRUCTURE_PROJECTS = [
+    {
+        "project_id": "proj_route_n1",
+        "name": "Extension Route Nationale N1",
+        "type": "road",
+        "status": "planned",
+        "start_year": 2025,
+        "regions": ["Conakry", "Kindia"],
+        "coordinates": [{"lat": 9.6412, "lng": -13.6785}, {"lat": 10.0667, "lng": -12.8667}],
+        "buffer_meters": 50
+    },
+    {
+        "project_id": "proj_hopital_ratoma",
+        "name": "Nouvel Hôpital Régional Ratoma",
+        "type": "hospital",
+        "status": "approved",
+        "start_year": 2026,
+        "regions": ["Conakry"],
+        "center": {"lat": 9.6500, "lng": -13.6000},
+        "radius_meters": 500
+    },
+    {
+        "project_id": "proj_ecole_matam",
+        "name": "Complexe Scolaire Matam",
+        "type": "school",
+        "status": "planned",
+        "start_year": 2025,
+        "regions": ["Conakry"],
+        "center": {"lat": 9.5350, "lng": -13.6800},
+        "radius_meters": 200
+    },
+    {
+        "project_id": "proj_barrage_kindia",
+        "name": "Barrage Hydroélectrique Kindia",
+        "type": "dam",
+        "status": "study",
+        "start_year": 2027,
+        "regions": ["Kindia"],
+        "center": {"lat": 10.0800, "lng": -12.8500},
+        "radius_meters": 2000
+    }
+]
+
+# Flood Zones (Mock Data)
+GUINEA_FLOOD_ZONES = [
+    {
+        "zone_id": "flood_conakry_coast",
+        "name": "Zone Côtière Conakry",
+        "risk_level": "high",
+        "coordinates": [
+            {"lat": 9.5000, "lng": -13.7500},
+            {"lat": 9.5200, "lng": -13.7000},
+            {"lat": 9.5100, "lng": -13.6800}
+        ]
+    },
+    {
+        "zone_id": "flood_niger_basin",
+        "name": "Bassin du Niger - Kankan",
+        "risk_level": "medium",
+        "center": {"lat": 10.3850, "lng": -9.3050},
+        "radius_km": 5
+    }
+]
+
+# Mining Zones
+GUINEA_MINING_ZONES = [
+    {
+        "zone_id": "mine_boke_bauxite",
+        "name": "Zone Bauxite Boké",
+        "type": "bauxite",
+        "company": "CBG/SMB",
+        "status": "active",
+        "center": {"lat": 10.9400, "lng": -14.2900},
+        "radius_km": 20
+    },
+    {
+        "zone_id": "mine_simandou_fer",
+        "name": "Simandou Iron Ore",
+        "type": "iron",
+        "company": "Rio Tinto/Simfer",
+        "status": "development",
+        "center": {"lat": 8.5000, "lng": -8.9000},
+        "radius_km": 30
+    }
+]
+
+def calculate_distance_km(lat1, lng1, lat2, lng2):
+    """Calculate distance between two points in km"""
+    import math
+    lat_diff = abs(lat1 - lat2) * 111
+    lng_diff = abs(lng1 - lng2) * 111 * math.cos(math.radians(lat1))
+    return math.sqrt(lat_diff**2 + lng_diff**2)
+
+@api_router.get("/lands/{land_id}/risk-assessment")
+async def get_land_risk_assessment(land_id: str):
+    """Comprehensive risk assessment for a land parcel"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    lat = land.get("latitude", 0)
+    lng = land.get("longitude", 0)
+    region = land.get("region", "")
+    
+    alerts = []
+    overall_risk = "low"
+    
+    # 1. Check Government Infrastructure Projects
+    infrastructure_risks = []
+    for project in GUINEA_INFRASTRUCTURE_PROJECTS:
+        if region in project.get("regions", []):
+            if "center" in project:
+                distance = calculate_distance_km(lat, lng, project["center"]["lat"], project["center"]["lng"])
+                radius_km = project.get("radius_meters", 1000) / 1000
+                if distance <= radius_km:
+                    infrastructure_risks.append({
+                        "project": project["name"],
+                        "type": project["type"],
+                        "status": project["status"],
+                        "distance_m": round(distance * 1000),
+                        "impact": "high" if distance < radius_km * 0.5 else "medium",
+                        "start_year": project.get("start_year")
+                    })
+    
+    if infrastructure_risks:
+        overall_risk = "high"
+        alerts.append({
+            "type": "infrastructure",
+            "severity": "high",
+            "title": "Projet d'Infrastructure Gouvernemental",
+            "message": f"{len(infrastructure_risks)} projet(s) planifié(s) à proximité",
+            "details": infrastructure_risks
+        })
+    
+    # 2. Check Flood Zones
+    flood_risks = []
+    for zone in GUINEA_FLOOD_ZONES:
+        if "center" in zone:
+            distance = calculate_distance_km(lat, lng, zone["center"]["lat"], zone["center"]["lng"])
+            if distance <= zone.get("radius_km", 5):
+                flood_risks.append({
+                    "zone": zone["name"],
+                    "risk_level": zone["risk_level"],
+                    "distance_km": round(distance, 2)
+                })
+    
+    if flood_risks:
+        if overall_risk != "critical":
+            overall_risk = "high" if any(f["risk_level"] == "high" for f in flood_risks) else "medium"
+        alerts.append({
+            "type": "flood",
+            "severity": flood_risks[0]["risk_level"],
+            "title": "Zone Inondable",
+            "message": "Terrain situé dans une zone à risque d'inondation",
+            "details": flood_risks
+        })
+    
+    # 3. Check Mining Zones
+    mining_risks = []
+    for zone in GUINEA_MINING_ZONES:
+        if "center" in zone:
+            distance = calculate_distance_km(lat, lng, zone["center"]["lat"], zone["center"]["lng"])
+            if distance <= zone.get("radius_km", 20):
+                mining_risks.append({
+                    "zone": zone["name"],
+                    "type": zone["type"],
+                    "company": zone["company"],
+                    "status": zone["status"],
+                    "distance_km": round(distance, 2)
+                })
+    
+    if mining_risks:
+        alerts.append({
+            "type": "mining",
+            "severity": "medium",
+            "title": "Zone Minière",
+            "message": "Terrain proche d'une zone d'exploitation minière",
+            "details": mining_risks
+        })
+    
+    # 4. Check for Known Disputes in Area
+    disputes = await db.land_disputes.find({
+        "region": region,
+        "status": {"$in": ["open", "pending"]}
+    }, {"_id": 0}).to_list(10)
+    
+    if disputes:
+        # Check distance to disputed lands
+        nearby_disputes = []
+        for dispute in disputes:
+            if dispute.get("latitude") and dispute.get("longitude"):
+                distance = calculate_distance_km(lat, lng, dispute["latitude"], dispute["longitude"])
+                if distance <= 1:  # Within 1km
+                    nearby_disputes.append({
+                        "dispute_id": dispute.get("dispute_id"),
+                        "type": dispute.get("type"),
+                        "status": dispute.get("status"),
+                        "distance_km": round(distance, 2)
+                    })
+        
+        if nearby_disputes:
+            overall_risk = "high"
+            alerts.append({
+                "type": "dispute",
+                "severity": "high",
+                "title": "Litiges à Proximité",
+                "message": f"{len(nearby_disputes)} litige(s) foncier(s) actif(s) dans la zone",
+                "details": nearby_disputes
+            })
+    
+    # 5. Environmental Assessment
+    environmental_notes = []
+    # Coastal erosion risk for Conakry
+    if region == "Conakry" and lng < -13.7:
+        environmental_notes.append({
+            "type": "erosion",
+            "risk": "medium",
+            "note": "Zone côtière sujette à l'érosion"
+        })
+    
+    # Calculate overall risk score
+    risk_score = 100
+    for alert in alerts:
+        if alert["severity"] == "critical":
+            risk_score -= 40
+        elif alert["severity"] == "high":
+            risk_score -= 25
+        elif alert["severity"] == "medium":
+            risk_score -= 15
+        else:
+            risk_score -= 5
+    
+    risk_score = max(0, risk_score)
+    
+    return {
+        "land_id": land_id,
+        "location": {"latitude": lat, "longitude": lng, "region": region},
+        "overall_risk": overall_risk,
+        "risk_score": risk_score,
+        "risk_label": "Faible" if risk_score >= 70 else "Modéré" if risk_score >= 40 else "Élevé",
+        "alerts": alerts,
+        "infrastructure_nearby": len(infrastructure_risks),
+        "flood_zone": len(flood_risks) > 0,
+        "mining_zone": len(mining_risks) > 0,
+        "active_disputes": len([a for a in alerts if a["type"] == "dispute"]),
+        "environmental_notes": environmental_notes,
+        "assessment_date": datetime.now(timezone.utc).isoformat(),
+        "disclaimer": "Cette évaluation est basée sur des données publiques et ne constitue pas un avis juridique."
+    }
+
+# -------------------- CADASTRE / LAND REGISTRY SIMULATION --------------------
+
+@api_router.get("/lands/{land_id}/cadastre-check")
+async def check_cadastre_status(land_id: str):
+    """Check land against cadastre/land registry (simulated)"""
+    land = await db.lands.find_one({"land_id": land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # In production, this would connect to Guinea's cadastre system
+    # For now, we simulate based on verification status
+    
+    has_title = len(land.get("documents", [])) > 0
+    has_official_verification = len(land.get("verifications", [])) > 0
+    
+    # Generate simulated cadastre reference
+    cadastre_ref = f"GN-{land.get('region', 'XX')[:2].upper()}-{land_id[-8:].upper()}"
+    
+    return {
+        "land_id": land_id,
+        "cadastre_reference": cadastre_ref if has_title else None,
+        "registration_status": "registered" if has_title else "unregistered",
+        "title_status": "valid" if has_official_verification else "pending" if has_title else "none",
+        "last_survey_date": land.get("created_at") if has_title else None,
+        "official_area_m2": land.get("size"),
+        "matches_declared": True,  # Would compare with official records
+        "encumbrances": [],  # Mortgages, liens, etc.
+        "restrictions": [],  # Zoning restrictions
+        "recommendations": [
+            "Enregistrer le terrain au cadastre" if not has_title else None,
+            "Obtenir un titre foncier officiel" if not has_official_verification else None,
+            "Faire arpenter le terrain par un géomètre agréé" if not has_title else None
+        ],
+        "verification_level": "full" if has_official_verification else "partial" if has_title else "none",
+        "disclaimer": "Vérification simulée. Pour une vérification officielle, contactez le Bureau du Cadastre."
+    }
+
+# -------------------- DISPUTE TRACKING SYSTEM --------------------
+
+class DisputeReport(BaseModel):
+    land_id: str
+    dispute_type: str  # boundary, ownership, inheritance, fraud, encroachment
+    description: str
+    opposing_party: Optional[str] = None
+    evidence_documents: List[str] = []
+    witness_contacts: List[str] = []
+
+@api_router.post("/disputes/report")
+async def report_land_dispute(report: DisputeReport, current_user: dict = Depends(get_current_user)):
+    """Report a land dispute"""
+    land = await db.lands.find_one({"land_id": report.land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    dispute = {
+        "dispute_id": f"disp_{uuid.uuid4().hex[:12]}",
+        "land_id": report.land_id,
+        "reported_by": current_user["user_id"],
+        "dispute_type": report.dispute_type,
+        "description": report.description,
+        "opposing_party": report.opposing_party,
+        "evidence_documents": report.evidence_documents,
+        "witness_contacts": report.witness_contacts,
+        "status": "open",
+        "latitude": land.get("latitude"),
+        "longitude": land.get("longitude"),
+        "region": land.get("region"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "resolution": None
+    }
+    
+    await db.land_disputes.insert_one(dispute)
+    
+    # Flag the land
+    await db.lands.update_one(
+        {"land_id": report.land_id},
+        {
+            "$set": {"has_active_dispute": True},
+            "$push": {"disputes": dispute["dispute_id"]}
+        }
+    )
+    
+    return {
+        "dispute_id": dispute["dispute_id"],
+        "message": "Litige signalé avec succès",
+        "next_steps": [
+            "Un médiateur sera assigné sous 48h",
+            "Préparez tous vos documents justificatifs",
+            "Les deux parties seront contactées"
+        ]
+    }
+
+@api_router.get("/disputes/area/{region}")
+async def get_area_disputes(region: str):
+    """Get all disputes in a region (for mapping)"""
+    disputes = await db.land_disputes.find(
+        {"region": region},
+        {"_id": 0, "witness_contacts": 0}  # Exclude sensitive info
+    ).to_list(100)
+    
+    # Aggregate stats
+    by_type = {}
+    by_status = {}
+    for d in disputes:
+        dtype = d.get("dispute_type", "unknown")
+        dstatus = d.get("status", "unknown")
+        by_type[dtype] = by_type.get(dtype, 0) + 1
+        by_status[dstatus] = by_status.get(dstatus, 0) + 1
+    
+    return {
+        "region": region,
+        "total_disputes": len(disputes),
+        "by_type": by_type,
+        "by_status": by_status,
+        "disputes": disputes,
+        "hotspots": []  # Would calculate clustering
+    }
+
+@api_router.get("/lands/{land_id}/disputes")
+async def get_land_disputes(land_id: str):
+    """Get disputes related to a specific land"""
+    disputes = await db.land_disputes.find(
+        {"land_id": land_id},
+        {"_id": 0, "witness_contacts": 0}
+    ).to_list(20)
+    
+    return {
+        "land_id": land_id,
+        "has_disputes": len(disputes) > 0,
+        "total": len(disputes),
+        "open_count": len([d for d in disputes if d.get("status") == "open"]),
+        "resolved_count": len([d for d in disputes if d.get("status") == "resolved"]),
+        "disputes": disputes
+    }
+
+
+# ==================== TRANSACTION SECURITY SYSTEM ====================
+
+# -------------------- ESCROW SYSTEM --------------------
+
+class EscrowCreateRequest(BaseModel):
+    land_id: str
+    buyer_id: str
+    amount: float
+    payment_method: str  # mobile_money, bank_transfer, cash
+    conditions: List[str] = []  # Conditions for release
+    
+class EscrowAction(BaseModel):
+    action: str  # fund, release, dispute, cancel
+    notes: Optional[str] = None
+
+@api_router.post("/escrow/create")
+async def create_escrow(request: EscrowCreateRequest, current_user: dict = Depends(get_current_user)):
+    """Create an escrow for a land transaction"""
+    land = await db.lands.find_one({"land_id": request.land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Verify seller
+    if land.get("owner_id") != current_user["user_id"] and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Seul le propriétaire peut créer un escrow")
+    
+    # Default conditions if none provided
+    default_conditions = [
+        "Vérification de l'identité de l'acheteur",
+        "Vérification des documents de propriété",
+        "Signature du contrat de vente",
+        "Présence de témoins lors de la signature"
+    ]
+    
+    escrow = {
+        "escrow_id": f"esc_{uuid.uuid4().hex[:12]}",
+        "land_id": request.land_id,
+        "seller_id": land.get("owner_id"),
+        "buyer_id": request.buyer_id,
+        "amount": request.amount,
+        "payment_method": request.payment_method,
+        "conditions": request.conditions or default_conditions,
+        "conditions_met": [],
+        "status": "created",  # created, funded, conditions_pending, released, disputed, cancelled
+        "funded_at": None,
+        "released_at": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "timeline": [{
+            "action": "created",
+            "by": current_user["user_id"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "notes": "Escrow créé"
+        }]
+    }
+    
+    await db.escrows.insert_one(escrow)
+    
+    return {
+        "escrow_id": escrow["escrow_id"],
+        "status": "created",
+        "message": "Escrow créé avec succès",
+        "next_steps": [
+            f"L'acheteur doit déposer {request.amount:,.0f} GNF",
+            "Les conditions seront vérifiées avant la libération des fonds"
+        ]
+    }
+
+@api_router.post("/escrow/{escrow_id}/action")
+async def escrow_action(escrow_id: str, action: EscrowAction, current_user: dict = Depends(get_current_user)):
+    """Perform an action on an escrow"""
+    escrow = await db.escrows.find_one({"escrow_id": escrow_id}, {"_id": 0})
+    if not escrow:
+        raise HTTPException(status_code=404, detail="Escrow non trouvé")
+    
+    # Permission check
+    is_buyer = escrow.get("buyer_id") == current_user["user_id"]
+    is_seller = escrow.get("seller_id") == current_user["user_id"]
+    is_admin = current_user.get("role") == "admin"
+    
+    if not (is_buyer or is_seller or is_admin):
+        raise HTTPException(status_code=403, detail="Non autorisé")
+    
+    update_data = {
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    timeline_entry = {
+        "action": action.action,
+        "by": current_user["user_id"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "notes": action.notes
+    }
+    
+    if action.action == "fund":
+        if not is_buyer:
+            raise HTTPException(status_code=403, detail="Seul l'acheteur peut financer l'escrow")
+        update_data["status"] = "funded"
+        update_data["funded_at"] = datetime.now(timezone.utc).isoformat()
+        timeline_entry["notes"] = f"Fonds déposés: {escrow.get('amount'):,.0f} GNF"
+        
+    elif action.action == "release":
+        if escrow.get("status") != "funded":
+            raise HTTPException(status_code=400, detail="L'escrow doit être financé avant la libération")
+        if not is_seller and not is_admin:
+            raise HTTPException(status_code=403, detail="Seul le vendeur ou un admin peut libérer les fonds")
+        update_data["status"] = "released"
+        update_data["released_at"] = datetime.now(timezone.utc).isoformat()
+        timeline_entry["notes"] = "Fonds libérés au vendeur"
+        
+    elif action.action == "dispute":
+        update_data["status"] = "disputed"
+        timeline_entry["notes"] = action.notes or "Litige ouvert"
+        
+    elif action.action == "cancel":
+        if escrow.get("status") in ["released"]:
+            raise HTTPException(status_code=400, detail="Impossible d'annuler un escrow déjà libéré")
+        update_data["status"] = "cancelled"
+        timeline_entry["notes"] = action.notes or "Escrow annulé"
+    
+    await db.escrows.update_one(
+        {"escrow_id": escrow_id},
+        {
+            "$set": update_data,
+            "$push": {"timeline": timeline_entry}
+        }
+    )
+    
+    return {
+        "escrow_id": escrow_id,
+        "status": update_data.get("status", escrow.get("status")),
+        "message": f"Action '{action.action}' effectuée avec succès"
+    }
+
+@api_router.get("/escrow/{escrow_id}")
+async def get_escrow_details(escrow_id: str, current_user: dict = Depends(get_current_user)):
+    """Get escrow details"""
+    escrow = await db.escrows.find_one({"escrow_id": escrow_id}, {"_id": 0})
+    if not escrow:
+        raise HTTPException(status_code=404, detail="Escrow non trouvé")
+    
+    # Get buyer and seller info
+    buyer = await db.users.find_one({"user_id": escrow.get("buyer_id")}, {"_id": 0, "name": 1, "phone": 1})
+    seller = await db.users.find_one({"user_id": escrow.get("seller_id")}, {"_id": 0, "name": 1, "phone": 1})
+    
+    return {
+        **escrow,
+        "buyer_name": buyer.get("name") if buyer else "Inconnu",
+        "seller_name": seller.get("name") if seller else "Inconnu"
+    }
+
+@api_router.get("/lands/{land_id}/escrows")
+async def get_land_escrows(land_id: str):
+    """Get all escrows for a land"""
+    escrows = await db.escrows.find(
+        {"land_id": land_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(20)
+    
+    return {
+        "land_id": land_id,
+        "total": len(escrows),
+        "active": len([e for e in escrows if e.get("status") in ["created", "funded", "conditions_pending"]]),
+        "escrows": escrows
+    }
+
+# -------------------- DIGITAL WITNESSES SYSTEM --------------------
+
+class WitnessInvitation(BaseModel):
+    land_id: str
+    transaction_id: Optional[str] = None
+    witness_name: str
+    witness_phone: str
+    witness_role: str  # family_member, neighbor, chief, notable, neutral
+    relationship_to_parties: Optional[str] = None
+
+class WitnessSignature(BaseModel):
+    invitation_code: str
+    confirms_transaction: bool
+    confirms_parties_identity: bool
+    confirms_voluntary: bool  # Both parties act voluntarily
+    notes: Optional[str] = None
+    signature_location: Optional[str] = None
+
+@api_router.post("/witnesses/invite")
+async def invite_witness(invitation: WitnessInvitation, current_user: dict = Depends(get_current_user)):
+    """Invite a witness to attest a transaction"""
+    land = await db.lands.find_one({"land_id": invitation.land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Generate invitation code
+    invitation_code = str(uuid.uuid4())[:8].upper()
+    
+    witness_record = {
+        "witness_id": f"wit_{uuid.uuid4().hex[:12]}",
+        "land_id": invitation.land_id,
+        "transaction_id": invitation.transaction_id,
+        "invited_by": current_user["user_id"],
+        "witness_name": invitation.witness_name,
+        "witness_phone": invitation.witness_phone,
+        "witness_role": invitation.witness_role,
+        "relationship_to_parties": invitation.relationship_to_parties,
+        "invitation_code": invitation_code,
+        "status": "invited",  # invited, signed, declined, expired
+        "invited_at": datetime.now(timezone.utc).isoformat(),
+        "signed_at": None,
+        "signature_data": None
+    }
+    
+    await db.witnesses.insert_one(witness_record)
+    
+    # TODO: Send SMS with invitation code
+    
+    return {
+        "witness_id": witness_record["witness_id"],
+        "invitation_code": invitation_code,
+        "message": f"Invitation envoyée à {invitation.witness_name}",
+        "instructions": f"Le témoin doit utiliser le code {invitation_code} pour signer"
+    }
+
+@api_router.post("/witnesses/sign")
+async def witness_sign(signature: WitnessSignature):
+    """Witness signs/attests a transaction"""
+    witness = await db.witnesses.find_one(
+        {"invitation_code": signature.invitation_code},
+        {"_id": 0}
+    )
+    
+    if not witness:
+        raise HTTPException(status_code=404, detail="Code d'invitation invalide")
+    
+    if witness.get("status") != "invited":
+        raise HTTPException(status_code=400, detail="Cette invitation a déjà été utilisée")
+    
+    signature_data = {
+        "confirms_transaction": signature.confirms_transaction,
+        "confirms_parties_identity": signature.confirms_parties_identity,
+        "confirms_voluntary": signature.confirms_voluntary,
+        "notes": signature.notes,
+        "signature_location": signature.signature_location,
+        "signed_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    status = "signed" if signature.confirms_transaction else "declined"
+    
+    await db.witnesses.update_one(
+        {"invitation_code": signature.invitation_code},
+        {
+            "$set": {
+                "status": status,
+                "signed_at": datetime.now(timezone.utc).isoformat(),
+                "signature_data": signature_data
+            }
+        }
+    )
+    
+    return {
+        "status": status,
+        "message": "Témoignage enregistré avec succès" if status == "signed" else "Témoignage décliné"
+    }
+
+@api_router.get("/lands/{land_id}/witnesses")
+async def get_land_witnesses(land_id: str):
+    """Get all witnesses for a land"""
+    witnesses = await db.witnesses.find(
+        {"land_id": land_id},
+        {"_id": 0, "invitation_code": 0}
+    ).to_list(50)
+    
+    signed = len([w for w in witnesses if w.get("status") == "signed"])
+    
+    return {
+        "land_id": land_id,
+        "total_witnesses": len(witnesses),
+        "signed_count": signed,
+        "pending_count": len([w for w in witnesses if w.get("status") == "invited"]),
+        "witnesses": witnesses,
+        "credibility_score": round((signed / len(witnesses)) * 100) if witnesses else 0
+    }
+
+# -------------------- DOCUMENT VAULT SYSTEM --------------------
+
+class DocumentUpload(BaseModel):
+    land_id: str
+    document_type: str  # title_deed, survey_plan, contract, id_card, receipt, photo, other
+    title: str
+    description: Optional[str] = None
+    file_url: str
+    is_official: bool = False
+    expiry_date: Optional[str] = None
+
+@api_router.post("/documents/upload")
+async def upload_document(doc: DocumentUpload, current_user: dict = Depends(get_current_user)):
+    """Upload a document to the vault"""
+    land = await db.lands.find_one({"land_id": doc.land_id}, {"_id": 0})
+    if not land:
+        raise HTTPException(status_code=404, detail="Terrain non trouvé")
+    
+    # Verify ownership
+    if land.get("owner_id") != current_user["user_id"] and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Non autorisé")
+    
+    document = {
+        "document_id": f"doc_{uuid.uuid4().hex[:12]}",
+        "land_id": doc.land_id,
+        "uploaded_by": current_user["user_id"],
+        "document_type": doc.document_type,
+        "title": doc.title,
+        "description": doc.description,
+        "file_url": doc.file_url,
+        "is_official": doc.is_official,
+        "expiry_date": doc.expiry_date,
+        "verified": False,
+        "verification_date": None,
+        "verified_by": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "access_log": [{
+            "action": "uploaded",
+            "by": current_user["user_id"],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }]
+    }
+    
+    await db.document_vault.insert_one(document)
+    
+    # Update land document count
+    await db.lands.update_one(
+        {"land_id": doc.land_id},
+        {"$push": {"documents": document["document_id"]}}
+    )
+    
+    return {
+        "document_id": document["document_id"],
+        "message": "Document téléchargé avec succès"
+    }
+
+@api_router.get("/lands/{land_id}/documents")
+async def get_land_documents(land_id: str, current_user: dict = Depends(get_current_user)):
+    """Get all documents in the vault for a land"""
+    documents = await db.document_vault.find(
+        {"land_id": land_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Log access
+    for doc in documents:
+        await db.document_vault.update_one(
+            {"document_id": doc.get("document_id")},
+            {
+                "$push": {
+                    "access_log": {
+                        "action": "viewed",
+                        "by": current_user["user_id"],
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+            }
+        )
+    
+    # Group by type
+    by_type = {}
+    for doc in documents:
+        dtype = doc.get("document_type", "other")
+        if dtype not in by_type:
+            by_type[dtype] = []
+        by_type[dtype].append(doc)
+    
+    type_labels = {
+        "title_deed": "Titre foncier",
+        "survey_plan": "Plan de bornage",
+        "contract": "Contrat",
+        "id_card": "Pièce d'identité",
+        "receipt": "Reçu",
+        "photo": "Photo",
+        "other": "Autre"
+    }
+    
+    return {
+        "land_id": land_id,
+        "total_documents": len(documents),
+        "official_count": len([d for d in documents if d.get("is_official")]),
+        "verified_count": len([d for d in documents if d.get("verified")]),
+        "by_type": {type_labels.get(k, k): v for k, v in by_type.items()},
+        "documents": documents
+    }
+
+@api_router.post("/documents/{document_id}/verify")
+async def verify_document(document_id: str, current_user: dict = Depends(get_current_user)):
+    """Admin verifies a document"""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Seul un admin peut vérifier les documents")
+    
+    result = await db.document_vault.update_one(
+        {"document_id": document_id},
+        {
+            "$set": {
+                "verified": True,
+                "verification_date": datetime.now(timezone.utc).isoformat(),
+                "verified_by": current_user["user_id"]
+            },
+            "$push": {
+                "access_log": {
+                    "action": "verified",
+                    "by": current_user["user_id"],
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        }
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Document non trouvé")
+    
+    return {"message": "Document vérifié avec succès"}
+
+@api_router.post("/documents/{document_id}/share")
+async def share_document(document_id: str, share_with_user_id: str, current_user: dict = Depends(get_current_user)):
+    """Share a document with another user"""
+    doc = await db.document_vault.find_one({"document_id": document_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document non trouvé")
+    
+    # Verify ownership
+    land = await db.lands.find_one({"land_id": doc.get("land_id")}, {"_id": 0})
+    if land.get("owner_id") != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Non autorisé")
+    
+    await db.document_vault.update_one(
+        {"document_id": document_id},
+        {
+            "$addToSet": {"shared_with": share_with_user_id},
+            "$push": {
+                "access_log": {
+                    "action": "shared",
+                    "by": current_user["user_id"],
+                    "with": share_with_user_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        }
+    )
+    
+    return {"message": "Document partagé avec succès"}
+
+
+
+
+
 
 
 # Include the router in the main app

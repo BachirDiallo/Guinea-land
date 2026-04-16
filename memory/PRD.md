@@ -80,8 +80,16 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 ## P0 - Critical (Current)
 - [x] Clear secrets for GitHub push workflow
 - [x] Fix nearby lands feature to show available lands (not just transactions)
+- [x] Add diverse land listings across Guinea regions
 
 ## P1 - High Priority
+- [x] **Phase 1: Fraud Prevention & Trust** - Trust Score, Duplicate Alerts, Community Verification, Ownership History
+- [x] **Phase 2: Due Diligence** - Risk Assessment, Cadastre Check, Dispute Tracking
+- [x] **Phase 3: Transaction Security** - Escrow, Digital Witnesses, Document Vault
+- [ ] **Phase 4: Better Decisions** - Infrastructure Score, Fair Price Estimator, Surveyor Network
+- [ ] Backend refactoring: Split `server.py` (4500+ lines) into modular routes
+
+## P2 - Medium Priority
 - [ ] Backend refactoring: Split server.py (3000+ lines) into modular routes
 - [ ] Twilio SMS activation (pending user API key)
 

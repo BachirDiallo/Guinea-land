@@ -8,6 +8,9 @@ import { Badge } from '../components/ui/badge';
 import { WhatsAppContactButton, WhatsAppShareButton } from '../components/WhatsApp';
 import { VerificationBadge, UserRatingBadge } from '../components/Reviews';
 import { EnhancedPriceComparison } from '../components/MarketPrices';
+import { TrustScoreCard, DuplicateAlertCard, CommunityVerifications, OwnershipHistory } from '../components/TrustSystem';
+import { RiskAssessmentCard, CadastreCheckCard, LandDisputesCard } from '../components/DueDiligence';
+import { TransactionSecuritySummary } from '../components/TransactionSecurity';
 import { toast } from 'sonner';
 import { 
   MapPin, 
@@ -221,10 +224,41 @@ export default function LandDetail() {
               </div>
             )}
 
+            {/* Duplicate Alert - Show if there are risks */}
+            <DuplicateAlertCard landId={landId} />
+
+            {/* Trust Score */}
+            <TrustScoreCard landId={landId} />
+
+            {/* Community Verifications */}
+            <CommunityVerifications 
+              landId={landId} 
+              isOwner={user?.user_id === land.owner_id}
+            />
+
+            {/* Ownership History */}
+            <OwnershipHistory 
+              landId={landId}
+              isOwner={user?.user_id === land.owner_id}
+            />
+
+            {/* Due Diligence Section */}
+            <RiskAssessmentCard landId={landId} />
+            
+            <CadastreCheckCard landId={landId} />
+
+            <LandDisputesCard landId={landId} />
+
             {/* Price Comparison - Enhanced with nearby transactions */}
             <EnhancedPriceComparison 
               landId={landId} 
               landLocation={land.latitude && land.longitude ? { lat: land.latitude, lng: land.longitude } : null}
+            />
+
+            {/* Transaction Security */}
+            <TransactionSecuritySummary 
+              landId={landId}
+              isOwner={user?.user_id === land.owner_id}
             />
 
             {/* Key Info */}
