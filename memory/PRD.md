@@ -18,6 +18,42 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 
 ---
 
+## Architecture (Refactored December 2025)
+
+### Backend Structure (Modular FastAPI)
+```
+/app/backend/
+├── server.py          # Main app entry (93 lines)
+├── config.py          # Environment config
+├── database.py        # MongoDB connection
+├── models/            # Pydantic models
+│   ├── user.py
+│   ├── land.py
+│   ├── transaction.py
+│   └── common.py
+├── routes/            # API route modules
+│   ├── auth.py        # Authentication
+│   ├── users.py       # User management
+│   ├── lands.py       # Land CRUD
+│   ├── transactions.py # Transactions
+│   ├── admin.py       # Admin functions
+│   ├── files.py       # File uploads
+│   ├── stats.py       # Platform stats
+│   ├── alerts.py      # Zone alerts
+│   ├── trust.py       # Trust/fraud prevention
+│   ├── security.py    # Escrow/witnesses
+│   ├── analytics.py   # Market analytics
+│   └── ai.py          # AI assistant
+└── utils/             # Helper utilities
+    ├── auth.py        # JWT helpers
+    ├── email.py       # Resend emails
+    ├── sms.py         # Twilio SMS
+    ├── pdf.py         # PDF generation
+    └── storage.py     # Object storage
+```
+
+---
+
 ## Completed Features (December 2025)
 
 ### Core Platform
