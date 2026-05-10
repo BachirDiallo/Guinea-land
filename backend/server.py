@@ -39,7 +39,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # JWT Configuration
-JWT_SECRET = os.environ.get('JWT_SECRET', 'guinea-land-secret-key-2024')
+JWT_SECRET = os.environ.get('JWT_SECRET') or 'guinea-land-secret-key-2024'  # Set JWT_SECRET in production
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
@@ -51,7 +51,7 @@ storage_key = None
 
 # Email Configuration (Resend)
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL") or "noreply@guinealandhub.com"
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 
@@ -63,8 +63,8 @@ twilio_client = None
 if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
     twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Frontend URL for QR codes
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://guinea-land-hub.preview.emergentagent.com")
+# Frontend URL for QR codes and emails
+FRONTEND_URL = os.environ.get("FRONTEND_URL") or os.environ.get("REACT_APP_BACKEND_URL", "").replace("/api", "") or "https://guinealandhub.com"
 
 # MIME Types
 MIME_TYPES = {
@@ -163,7 +163,7 @@ async def send_transaction_email(
                 </div>
                 
                 <p style="text-align: center;">
-                    <a href="{os.environ.get('FRONTEND_URL', 'https://guinealandhub.com')}/transactions" class="cta">Voir mes transactions</a>
+                    <a href="{FRONTEND_URL}/transactions" class="cta">Voir mes transactions</a>
                 </p>
                 
                 <p style="font-size: 12px; color: #666; margin-top: 30px;">
