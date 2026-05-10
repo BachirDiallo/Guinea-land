@@ -4,6 +4,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide Emergent branding badge */
+[data-emergent-badge],
+.emergent-badge,
+a[href*="emergentagent.com"]:has(img),
+div[style*="Made with"],
+iframe[src*="emergent"],
+#emergent-badge,
+.made-with-emergent {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 body {
     margin: 0;
     font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
