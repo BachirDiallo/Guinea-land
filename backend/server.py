@@ -5576,6 +5576,93 @@ async def clear_ai_chat_history(session_id: str):
     return {"success": True, "message": "Chat history cleared"}
 
 
+# ==================== AI DESCRIPTION GENERATOR ====================
+
+AI_DESCRIPTION_PROMPT = """Tu es un expert en rédaction d'annonces immobilières pour le marché guinéen. 
+Tu dois créer des descriptions de terrains attrayantes, professionnelles et convaincantes en français.
+
+RÈGLES:
+1. Écris UNIQUEMENT la description, sans titre ni introduction
+2. Utilise un ton professionnel mais chaleureux
+3. Mets en valeur les points forts du terrain
+4. Mentionne la localisation de manière attractive
+5. Adapte le style au type de terrain (résidentiel, commercial, agricole)
+6. Longueur: 80-120 mots
+7. Utilise des paragraphes courts et aérés
+8. Évite les clichés et le jargon technique excessif
+9. N'invente PAS d'informations non fournies
+
+STYLES PAR TYPE:
+- Résidentiel: Accent sur le cadre de vie, la tranquillité, le potentiel familial
+- Commercial: Accent sur la visibilité, l'accessibilité, le potentiel économique
+- Agricole: Accent sur la fertilité, l'irrigation, le potentiel de rendement
+
+EXEMPLES DE BONNES DESCRIPTIONS:
+- "Magnifique parcelle de 500m² idéalement située au cœur de Kipé, offrant un cadre paisible pour votre futur projet résidentiel..."
+- "Opportunité rare à Matoto! Ce terrain commercial de 1200m² bénéficie d'une excellente visibilité sur l'axe principal..."
+"""
+
+class AIDescriptionRequest(BaseModel):
+    title: str = ""
+    size: float
+    region: str
+    commune: str
+    land_type: str  # residential, commercial, agricultural
+    address: str = ""
+    price: float = 0
+
+class AIDescriptionResponse(BaseModel):
+    description: str
+    success: bool
+
+@api_router.post("/ai/generate-description", response_model=AIDescriptionResponse)
+async def generate_land_description(request: AIDescriptionRequest):
+    """Generate an AI-powered land description in French"""
+    try:
+        # Build the prompt with land details
+        land_type_fr = {
+            "residential": "résidentiel",
+            "commercial": "commercial", 
+            "agricultural": "agricole"
+        }.get(request.land_type, "résidentiel")
+        
+        user_prompt = f"""Génère une description attractive pour ce terrain:
+
+- Type: {land_type_fr}
+- Surface: {request.size:,.0f} m²
+- Région: {request.region}
+- Commune: {request.commune}
+{f'- Adresse: {request.address}' if request.address else ''}
+{f'- Titre suggéré: {request.title}' if request.title else ''}
+{f'- Prix: {request.price:,.0f} GNF' if request.price > 0 else ''}
+
+Écris une description de 80-120 mots qui donnera envie aux acheteurs potentiels."""
+
+        # Initialize LlmChat for description generation
+        chat = LlmChat(
+            api_key=EMERGENT_KEY,
+            session_id=f"desc_gen_{uuid.uuid4().hex[:8]}",
+            system_message=AI_DESCRIPTION_PROMPT
+        ).with_model("openai", "gpt-4o-mini")
+        
+        # Create user message
+        user_message = UserMessage(text=user_prompt)
+        
+        # Get AI response
+        description = await chat.send_message(user_message)
+        
+        # Clean up the response (remove any quotes if present)
+        description = description.strip().strip('"').strip("'")
+        
+        return AIDescriptionResponse(description=description, success=True)
+        
+    except Exception as e:
+        logger.error(f"AI Description generation error: {e}")
+        # Return a template fallback
+        fallback = f"Superbe terrain {request.land_type} de {request.size:,.0f} m² situé à {request.commune}, {request.region}. Cette parcelle offre un excellent potentiel pour votre projet. Emplacement stratégique avec bon accès. Contactez-nous pour plus d'informations et organiser une visite."
+        return AIDescriptionResponse(description=fallback, success=False)
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

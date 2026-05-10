@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, MapPin, Plus, X, Upload, FileText, Image as ImageIcon, Trash } from '@phosphor-icons/react';
+import { ArrowLeft, MapPin, Plus, X, Upload, FileText, Image as ImageIcon, Trash, Sparkle } from '@phosphor-icons/react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -27,6 +27,7 @@ export default function AddLand() {
   const [loading, setLoading] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
   const [markerPosition, setMarkerPosition] = useState(null);
   const [boundaryPoints, setBoundaryPoints] = useState([]);
   const [drawingMode, setDrawingMode] = useState(false);
@@ -68,6 +69,46 @@ export default function AddLand() {
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // AI Description Generator
+  const generateAIDescription = async () => {
+    // Validate required fields
+    if (!formData.region || !formData.commune || !formData.size) {
+      toast.error('Veuillez d\'abord remplir la région, la commune et la surface');
+      return;
+    }
+
+    setGeneratingDescription(true);
+    
+    try {
+      const res = await fetch(`${API}/ai/generate-description`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formData.title,
+          size: parseFloat(formData.size) || 0,
+          region: formData.region,
+          commune: formData.commune,
+          land_type: formData.land_type,
+          address: formData.address,
+          price: parseFloat(formData.price) || 0
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setFormData(prev => ({ ...prev, description: data.description }));
+        toast.success('Description générée par IA!');
+      } else {
+        throw new Error('Erreur lors de la génération');
+      }
+    } catch (error) {
+      console.error('AI Description error:', error);
+      toast.error('Impossible de générer la description. Réessayez.');
+    } finally {
+      setGeneratingDescription(false);
+    }
   };
 
   const handleMapClick = useCallback((coords) => {
@@ -267,15 +308,42 @@ export default function AddLand() {
                   </div>
 
                   <div>
-                    <Label htmlFor="description" className="form-label">{t('land.form.description')}</Label>
+                    <div className="flex items-center justify-between mb-2">
+                      <Label htmlFor="description" className="form-label">{t('land.form.description')}</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={generateAIDescription}
+                        disabled={generatingDescription}
+                        className="gap-1.5 text-xs h-7 bg-gradient-to-r from-primary/10 to-accent/10 border-primary/30 hover:border-primary hover:bg-primary/20"
+                        data-testid="ai-generate-description-btn"
+                      >
+                        {generatingDescription ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            Génération...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkle className="w-3.5 h-3.5" weight="fill" />
+                            Générer avec IA
+                          </>
+                        )}
+                      </Button>
+                    </div>
                     <Textarea
                       id="description"
                       value={formData.description}
                       onChange={(e) => handleChange('description', e.target.value)}
                       rows={4}
                       required
+                      placeholder="Décrivez votre terrain ou utilisez l'IA pour générer une description..."
                       data-testid="land-description-input"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Astuce: Remplissez d'abord la région, commune et surface, puis cliquez sur "Générer avec IA"
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">

@@ -61,6 +61,11 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
   - Quick action buttons for common questions
   - Persistent chat history per session
   - Guides users to find lands, understand prices, sell process
+- [x] **AI Description Generator** - Auto-generates French land descriptions
+  - Accessible from "Ajouter un Terrain" page
+  - Takes size, region, commune, land type as input
+  - Tailored descriptions for residential, commercial, agricultural
+  - Professional copywriting optimized for conversions
 
 ### Trust & Verification
 - [x] Multi-level verification (Chef de Quartier → Gouverneur)
