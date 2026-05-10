@@ -5452,6 +5452,130 @@ async def get_investment_analysis(land_id: str):
 
 
 
+# ==================== AI LAND ASSISTANT ====================
+from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+# AI Assistant System Prompt - Bilingual French/English Land Expert
+AI_SYSTEM_PROMPT = """Tu es l'Assistant Terrain IA de Guinea Land Hub, un expert bilingue (français/anglais) spécialisé dans les transactions foncières en Guinée.
+
+RÔLE ET EXPERTISE:
+- Expert en immobilier et transactions foncières en Guinée
+- Connaissance approfondie des régions: Conakry, Kindia, Boké, Mamou, Labé, Faranah, Kankan, N'Zérékoré
+- Compréhension des aspects légaux des transactions foncières guinéennes
+- Conseil sur les prix du marché, les types de terrains (résidentiel, commercial, agricole)
+
+FONCTIONNALITÉS DE LA PLATEFORME À PROMOUVOIR:
+- Carte interactive pour explorer les terrains
+- Système de confiance et vérification
+- Comparaison de terrains (jusqu'à 4)
+- Alertes de zone personnalisées
+- Historique des transactions
+- Documents et photos sécurisés
+
+RÈGLES:
+1. Réponds TOUJOURS dans la langue de l'utilisateur (français par défaut, anglais si détecté)
+2. Sois concis mais informatif (max 150 mots)
+3. Si on te demande de chercher un terrain, guide l'utilisateur vers la page /listings ou /map
+4. Pour des questions légales complexes, recommande de consulter un notaire
+5. Mentionne les fonctionnalités pertinentes de la plateforme quand c'est approprié
+
+EXEMPLES DE QUESTIONS:
+- "Je cherche un terrain à Conakry" → Guide vers /listings avec filtres
+- "Quel est le prix moyen?" → Donne une fourchette et suggère /market-trends
+- "Comment vendre mon terrain?" → Explique le processus et guide vers /lands/new
+- "Est-ce sécurisé?" → Explique le système de confiance et vérification
+
+You are the AI Land Assistant of Guinea Land Hub. Respond helpfully to questions about land transactions in Guinea."""
+
+class AIMessageRequest(BaseModel):
+    message: str
+    session_id: str
+    language: str = "fr"
+
+class AIMessageResponse(BaseModel):
+    response: str
+    session_id: str
+
+# Store for chat sessions (in production, use Redis or MongoDB)
+ai_chat_sessions = {}
+
+@api_router.post("/ai/chat", response_model=AIMessageResponse)
+async def ai_chat_endpoint(request: AIMessageRequest):
+    """AI Land Assistant chat endpoint"""
+    try:
+        # Get or create chat session
+        session_id = request.session_id
+        
+        # Initialize LlmChat for this session
+        chat = LlmChat(
+            api_key=EMERGENT_KEY,
+            session_id=session_id,
+            system_message=AI_SYSTEM_PROMPT
+        ).with_model("openai", "gpt-4o-mini")
+        
+        # Load conversation history from database
+        history_collection = db.ai_chat_history
+        history = await history_collection.find_one({"session_id": session_id})
+        
+        if history and "messages" in history:
+            for msg in history["messages"]:
+                if msg["role"] == "user":
+                    chat.conversation_history.append({"role": "user", "content": msg["content"]})
+                else:
+                    chat.conversation_history.append({"role": "assistant", "content": msg["content"]})
+        
+        # Create user message
+        user_message = UserMessage(text=request.message)
+        
+        # Get AI response
+        response = await chat.send_message(user_message)
+        
+        # Save to conversation history in MongoDB
+        new_messages = [
+            {"role": "user", "content": request.message, "timestamp": datetime.now(timezone.utc).isoformat()},
+            {"role": "assistant", "content": response, "timestamp": datetime.now(timezone.utc).isoformat()}
+        ]
+        
+        await history_collection.update_one(
+            {"session_id": session_id},
+            {
+                "$push": {"messages": {"$each": new_messages}},
+                "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+                "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}
+            },
+            upsert=True
+        )
+        
+        return AIMessageResponse(response=response, session_id=session_id)
+        
+    except Exception as e:
+        logger.error(f"AI Chat error: {e}")
+        # Return a friendly fallback message
+        fallback_messages = {
+            "fr": "Désolé, je rencontre des difficultés techniques. Veuillez réessayer dans quelques instants ou explorer notre carte interactive pour trouver des terrains.",
+            "en": "Sorry, I'm experiencing technical difficulties. Please try again in a moment or explore our interactive map to find lands."
+        }
+        return AIMessageResponse(
+            response=fallback_messages.get(request.language, fallback_messages["fr"]),
+            session_id=request.session_id
+        )
+
+@api_router.get("/ai/history/{session_id}")
+async def get_ai_chat_history(session_id: str):
+    """Get chat history for a session"""
+    history = await db.ai_chat_history.find_one(
+        {"session_id": session_id},
+        {"_id": 0}
+    )
+    return history or {"session_id": session_id, "messages": []}
+
+@api_router.delete("/ai/history/{session_id}")
+async def clear_ai_chat_history(session_id: str):
+    """Clear chat history for a session"""
+    await db.ai_chat_history.delete_one({"session_id": session_id})
+    return {"success": True, "message": "Chat history cleared"}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

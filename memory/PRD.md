@@ -55,6 +55,13 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 - [x] QR codes with print/download options
 - [x] PDF transaction receipts
 
+### AI Features (December 2025)
+- [x] **AI Land Assistant** - Bilingual chatbot (FR/EN) powered by GPT-4o-mini
+  - Floating chat interface on all pages
+  - Quick action buttons for common questions
+  - Persistent chat history per session
+  - Guides users to find lands, understand prices, sell process
+
 ### Trust & Verification
 - [x] Multi-level verification (Chef de Quartier → Gouverneur)
 - [x] Verification badges
@@ -70,10 +77,11 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 ---
 
 ## Tech Stack
-- **Backend**: FastAPI, MongoDB (Motor async), PyJWT, ReportLab, Resend, QRCode
+- **Backend**: FastAPI, MongoDB (Motor async), PyJWT, ReportLab, Resend, QRCode, emergentintegrations
 - **Frontend**: React 18, Tailwind CSS, Shadcn/UI, react-map-gl, i18next
 - **Auth**: Cookie-based JWT, Emergent Google OAuth
 - **Storage**: Emergent Object Storage
+- **AI**: GPT-4o-mini via Emergent LLM Key
 
 ---
 
@@ -109,11 +117,12 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 - `/app/backend/server.py` - Main API (needs refactoring)
 - `/app/frontend/src/App.js` - Routes & layout
 - `/app/frontend/src/components/Navbar.js` - Mega menu
+- `/app/frontend/src/components/AIAssistant.js` - AI chatbot component
 - `/app/frontend/src/pages/MarketTrends.js` - Analytics dashboard
 - `/app/frontend/src/pages/LandComparison.js` - Comparison tool
 
 ## Database Collections
-- `users`, `lands`, `transactions`, `zone_alerts`, `notifications`, `saved_searches`
+- `users`, `lands`, `transactions`, `zone_alerts`, `notifications`, `saved_searches`, `ai_chat_history`
 
 ## Test Accounts
 - Admin: admin@guinealand.com / admin123
@@ -126,3 +135,16 @@ Build an app that will map and sell lands in Guinea. The idea is to handle land 
 1. **Auth**: Frontend uses cookie-based auth (`credentials: 'include'`). JWT not in React state.
 2. **PWA**: Offline mode disabled in preview environments to prevent false-positives.
 3. **Secrets Workflow**: Clear `.env` before GitHub push, restore after from SECRETS.md.
+
+---
+
+## Deployment
+
+### Current Deployment
+- **Production**: https://guinea-land-hub.emergent.host
+- **Preview**: https://guinea-land-hub.preview.emergentagent.com
+
+### Deployment Files Created
+- `/app/render.yaml` - Render.com Blueprint configuration
+- `/app/DEPLOY_RENDER.md` - Full deployment instructions
+- `/app/BETA_TEST_MESSAGES.md` - French messages for beta testers

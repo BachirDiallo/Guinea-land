@@ -10,6 +10,7 @@ import { AuthCallback } from './components/AuthCallback';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PWAStatus } from './components/PWAStatus';
 import { WhatsAppHelpButton } from './components/WhatsApp';
+import { AIAssistant } from './components/AIAssistant';
 
 // Pages
 import Landing from './pages/Landing';
@@ -147,6 +148,7 @@ const AppRouter = () => {
         </Routes>
       </main>
       {!isAuthPage && <Footer />}
+      {!isAuthPage && <AIAssistant />}
       {!isAuthPage && <WhatsAppHelpButton supportPhone="621000000" />}
     </>
   );
