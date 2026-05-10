@@ -163,7 +163,7 @@ async def send_transaction_email(
                 </div>
                 
                 <p style="text-align: center;">
-                    <a href="https://guinea-land-hub.preview.emergentagent.com/transactions" class="cta">Voir mes transactions</a>
+                    <a href="{os.environ.get('FRONTEND_URL', 'https://guinealandhub.com')}/transactions" class="cta">Voir mes transactions</a>
                 </p>
                 
                 <p style="font-size: 12px; color: #666; margin-top: 30px;">
@@ -1169,12 +1169,25 @@ async def get_transactions(
     
     transactions = await db.transactions.find(query, {"_id": 0}).limit(limit).to_list(limit)
     
-    # Enrich with names
+    # Batch fetch all related data to avoid N+1 queries
+    land_ids = list(set(t["land_id"] for t in transactions if t.get("land_id")))
+    buyer_ids = list(set(t["buyer_id"] for t in transactions if t.get("buyer_id")))
+    seller_ids = list(set(t["seller_id"] for t in transactions if t.get("seller_id")))
+    
+    # Fetch all lands, buyers, sellers in bulk
+    lands_list = await db.lands.find({"land_id": {"$in": land_ids}}, {"_id": 0, "land_id": 1, "title": 1}).to_list(len(land_ids))
+    lands_map = {land_item["land_id"]: land_item for land_item in lands_list}
+    
+    all_user_ids = list(set(buyer_ids + seller_ids))
+    users_list = await db.users.find({"user_id": {"$in": all_user_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(all_user_ids))
+    users_map = {u["user_id"]: u for u in users_list}
+    
+    # Enrich with names using the pre-fetched data
     result = []
     for t in transactions:
-        land = await db.lands.find_one({"land_id": t["land_id"]}, {"_id": 0, "title": 1})
-        buyer = await db.users.find_one({"user_id": t["buyer_id"]}, {"_id": 0, "name": 1})
-        seller = await db.users.find_one({"user_id": t["seller_id"]}, {"_id": 0, "name": 1})
+        land = lands_map.get(t.get("land_id"))
+        buyer = users_map.get(t.get("buyer_id"))
+        seller = users_map.get(t.get("seller_id"))
         
         t["land_title"] = land["title"] if land else None
         t["buyer_name"] = buyer["name"] if buyer else None
@@ -2430,11 +2443,16 @@ async def get_market_trends(
         {"_id": 0}
     ).to_list(2000)
     
+    # Batch fetch all lands to avoid N+1 queries
+    land_ids = list(set(tx.get("land_id") for tx in transactions if tx.get("land_id")))
+    lands_list = await db.lands.find({"land_id": {"$in": land_ids}}, {"_id": 0}).to_list(len(land_ids))
+    lands_map = {land_item["land_id"]: land_item for land_item in lands_list}
+    
     # Group by month
     monthly_data = {}
     
     for tx in transactions:
-        tx_land = await db.lands.find_one({"land_id": tx.get("land_id")}, {"_id": 0})
+        tx_land = lands_map.get(tx.get("land_id"))
         if not tx_land:
             continue
         
