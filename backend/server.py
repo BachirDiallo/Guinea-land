@@ -2924,7 +2924,7 @@ async def execute_saved_search(search_id: str, request: Request):
 
 @api_router.post("/compare")
 async def compare_lands(request: Request):
-    """Compare multiple lands side by side"""
+    """Compare multiple lands side by side with trust metrics"""
     body = await request.json()
     land_ids = body.get("land_ids", [])
     
@@ -2949,6 +2949,79 @@ async def compare_lands(request: Request):
             # Get verification count
             land["verification_count"] = len(land.get("verifications", []))
             
+            # ===== NEW TRUST METRICS =====
+            
+            # Trust Score
+            try:
+                trust_score_data = await get_land_trust_score(land_id)
+                land["trust_score"] = trust_score_data.get("percentage", 0)
+                land["trust_level"] = trust_score_data.get("trust_level", "unknown")
+                land["trust_label"] = trust_score_data.get("trust_label", "Non évalué")
+            except Exception:
+                land["trust_score"] = 0
+                land["trust_level"] = "unknown"
+                land["trust_label"] = "Non évalué"
+            
+            # Risk Assessment
+            try:
+                risk_data = await get_land_risk_assessment(land_id)
+                land["risk_score"] = risk_data.get("risk_score", 50)
+                land["risk_level"] = risk_data.get("overall_risk", "unknown")
+                land["risk_label"] = risk_data.get("risk_label", "Non évalué")
+                land["risk_alerts_count"] = len(risk_data.get("alerts", []))
+            except Exception:
+                land["risk_score"] = 50
+                land["risk_level"] = "unknown"
+                land["risk_label"] = "Non évalué"
+                land["risk_alerts_count"] = 0
+            
+            # Infrastructure Score
+            try:
+                infra_data = await get_infrastructure_score(land_id)
+                land["infrastructure_score"] = infra_data.get("percentage", 0)
+                land["infrastructure_grade"] = infra_data.get("grade", "?")
+                land["infrastructure_label"] = infra_data.get("grade_label", "Non évalué")
+            except Exception:
+                land["infrastructure_score"] = 0
+                land["infrastructure_grade"] = "?"
+                land["infrastructure_label"] = "Non évalué"
+            
+            # Price Estimate
+            try:
+                price_data = await get_fair_price_estimate(land_id)
+                land["estimated_price"] = price_data.get("estimation", {}).get("total_estimated", 0)
+                land["price_assessment"] = price_data.get("price_assessment", "unknown")
+                land["price_assessment_label"] = price_data.get("price_assessment_label", "Non évalué")
+                land["price_difference_percent"] = price_data.get("price_difference_percent", 0)
+            except Exception:
+                land["estimated_price"] = 0
+                land["price_assessment"] = "unknown"
+                land["price_assessment_label"] = "Non évalué"
+                land["price_difference_percent"] = 0
+            
+            # Investment Analysis
+            try:
+                invest_data = await get_investment_analysis(land_id)
+                land["investment_score"] = invest_data.get("investment_score", 0)
+                land["investment_recommendation"] = invest_data.get("recommendation", "unknown")
+                land["investment_label"] = invest_data.get("recommendation_label", "Non évalué")
+            except Exception:
+                land["investment_score"] = 0
+                land["investment_recommendation"] = "unknown"
+                land["investment_label"] = "Non évalué"
+            
+            # Community Verifications
+            try:
+                comm_data = await get_land_community_verifications(land_id)
+                land["community_verifications"] = comm_data.get("verified_count", 0)
+                land["community_trust_level"] = comm_data.get("trust_level", "non_verified")
+            except Exception:
+                land["community_verifications"] = 0
+                land["community_trust_level"] = "non_verified"
+            
+            # Documents count
+            land["documents_count"] = len(land.get("documents", []))
+            
             lands.append(land)
     
     if len(lands) < 2:
@@ -2958,6 +3031,10 @@ async def compare_lands(request: Request):
     prices = [land_item["price"] for land_item in lands]
     sizes = [land_item["size"] for land_item in lands]
     prices_per_m2 = [land_item["price_per_m2"] for land_item in lands]
+    trust_scores = [land_item.get("trust_score", 0) for land_item in lands]
+    risk_scores = [land_item.get("risk_score", 50) for land_item in lands]
+    infra_scores = [land_item.get("infrastructure_score", 0) for land_item in lands]
+    invest_scores = [land_item.get("investment_score", 0) for land_item in lands]
     
     comparison = {
         "lands": lands,
@@ -2976,12 +3053,36 @@ async def compare_lands(request: Request):
                 "min": min(prices_per_m2),
                 "max": max(prices_per_m2),
                 "avg": round(sum(prices_per_m2) / len(prices_per_m2), 2)
+            },
+            "trust_score": {
+                "min": min(trust_scores),
+                "max": max(trust_scores),
+                "avg": round(sum(trust_scores) / len(trust_scores), 2)
+            },
+            "risk_score": {
+                "min": min(risk_scores),
+                "max": max(risk_scores),
+                "avg": round(sum(risk_scores) / len(risk_scores), 2)
+            },
+            "infrastructure_score": {
+                "min": min(infra_scores),
+                "max": max(infra_scores),
+                "avg": round(sum(infra_scores) / len(infra_scores), 2)
+            },
+            "investment_score": {
+                "min": min(invest_scores),
+                "max": max(invest_scores),
+                "avg": round(sum(invest_scores) / len(invest_scores), 2)
             }
         },
         "best_value": {
             "cheapest": land_ids[prices.index(min(prices))],
             "largest": land_ids[sizes.index(max(sizes))],
-            "best_price_per_m2": land_ids[prices_per_m2.index(min(prices_per_m2))]
+            "best_price_per_m2": land_ids[prices_per_m2.index(min(prices_per_m2))],
+            "most_trusted": land_ids[trust_scores.index(max(trust_scores))],
+            "safest": land_ids[risk_scores.index(max(risk_scores))],
+            "best_infrastructure": land_ids[infra_scores.index(max(infra_scores))],
+            "best_investment": land_ids[invest_scores.index(max(invest_scores))]
         }
     }
     

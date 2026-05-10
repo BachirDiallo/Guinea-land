@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Map, { Marker, Source, Layer } from 'react-map-gl/mapbox';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Progress } from '../components/ui/progress';
 import { WhatsAppShareButton } from '../components/WhatsApp';
 import { LandQRCode } from '../components/QRCode';
 import { 
@@ -30,7 +31,16 @@ import {
   ListBullets,
   ChartBar,
   Export,
-  WhatsappLogo
+  WhatsappLogo,
+  Shield,
+  Buildings,
+  ChartLineUp,
+  Users,
+  Files,
+  TrendUp,
+  TrendDown,
+  Minus,
+  Info
 } from '@phosphor-icons/react';
 import {
   Dialog,
@@ -141,6 +151,22 @@ export default function LandComparison() {
       case 'size':
         return comparison.lands.reduce((max, land) => 
           land.size > max.size ? land : max
+        ).land_id;
+      case 'trust_score':
+        return comparison.lands.reduce((max, land) => 
+          (land.trust_score || 0) > (max.trust_score || 0) ? land : max
+        ).land_id;
+      case 'risk_score':
+        return comparison.lands.reduce((max, land) => 
+          (land.risk_score || 0) > (max.risk_score || 0) ? land : max
+        ).land_id;
+      case 'infrastructure_score':
+        return comparison.lands.reduce((max, land) => 
+          (land.infrastructure_score || 0) > (max.infrastructure_score || 0) ? land : max
+        ).land_id;
+      case 'investment_score':
+        return comparison.lands.reduce((max, land) => 
+          (land.investment_score || 0) > (max.investment_score || 0) ? land : max
         ).land_id;
       default:
         return null;
@@ -486,6 +512,74 @@ export default function LandComparison() {
                         </div>
                       </div>
 
+                      {/* Trust & Security Metrics */}
+                      <div className="border-t border-border pt-3 mb-3">
+                        <div className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
+                          <Shield className="w-3 h-3" /> Confiance & Sécurité
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {/* Trust Score */}
+                          <div className={`p-2 rounded text-center ${isBest(land.land_id, 'trust_score') ? 'bg-green-50 border border-green-200' : 'bg-secondary/30'}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'trust_score') ? 'text-green-600' : ''}`}>
+                              {land.trust_score || 0}%
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">Confiance</div>
+                            {isBest(land.land_id, 'trust_score') && (
+                              <Trophy className="w-3 h-3 text-green-600 mx-auto mt-1" weight="fill" />
+                            )}
+                          </div>
+                          {/* Risk Score */}
+                          <div className={`p-2 rounded text-center ${isBest(land.land_id, 'risk_score') ? 'bg-blue-50 border border-blue-200' : 'bg-secondary/30'}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'risk_score') ? 'text-blue-600' : ''}`}>
+                              {land.risk_score || 0}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">Sécurité</div>
+                            {isBest(land.land_id, 'risk_score') && (
+                              <Trophy className="w-3 h-3 text-blue-600 mx-auto mt-1" weight="fill" />
+                            )}
+                          </div>
+                          {/* Infrastructure */}
+                          <div className={`p-2 rounded text-center ${isBest(land.land_id, 'infrastructure_score') ? 'bg-purple-50 border border-purple-200' : 'bg-secondary/30'}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'infrastructure_score') ? 'text-purple-600' : ''}`}>
+                              {land.infrastructure_grade || '?'}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">Infra.</div>
+                            {isBest(land.land_id, 'infrastructure_score') && (
+                              <Trophy className="w-3 h-3 text-purple-600 mx-auto mt-1" weight="fill" />
+                            )}
+                          </div>
+                          {/* Investment */}
+                          <div className={`p-2 rounded text-center ${isBest(land.land_id, 'investment_score') ? 'bg-yellow-50 border border-yellow-200' : 'bg-secondary/30'}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'investment_score') ? 'text-yellow-600' : ''}`}>
+                              {land.investment_score || 0}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">Invest.</div>
+                            {isBest(land.land_id, 'investment_score') && (
+                              <Trophy className="w-3 h-3 text-yellow-600 mx-auto mt-1" weight="fill" />
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Price Assessment Badge */}
+                        {land.price_assessment && land.price_assessment !== 'unknown' && (
+                          <div className={`mt-2 text-center text-xs py-1 px-2 rounded-full ${
+                            land.price_assessment === 'good_deal' || land.price_assessment === 'underpriced' 
+                              ? 'bg-green-100 text-green-700' 
+                              : land.price_assessment === 'fair' 
+                              ? 'bg-blue-100 text-blue-700'
+                              : land.price_assessment === 'slightly_high'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}>
+                            {land.price_assessment === 'good_deal' && '✓ Bonne affaire'}
+                            {land.price_assessment === 'underpriced' && '✓ Sous-évalué'}
+                            {land.price_assessment === 'fair' && '• Prix juste'}
+                            {land.price_assessment === 'slightly_high' && '↑ Légèrement élevé'}
+                            {land.price_assessment === 'overpriced' && '↑↑ Au-dessus du marché'}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Visual Bar for Price per m² */}
                       <div className="mb-4">
                         <div className="text-xs text-muted-foreground mb-1">Prix/m² relatif</div>
@@ -607,6 +701,116 @@ export default function LandComparison() {
                           </td>
                         ))}
                       </tr>
+                      
+                      {/* TRUST & SECURITY SECTION */}
+                      <tr className="border-t-2 border-primary/30 bg-primary/5">
+                        <td colSpan={comparison.lands.length + 1} className="p-3 font-bold text-primary flex items-center gap-2">
+                          <Shield className="w-4 h-4" weight="fill" /> Confiance & Sécurité
+                        </td>
+                      </tr>
+                      
+                      <tr className="border-t border-border">
+                        <td className="p-4 font-medium">Score de Confiance</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className={`p-4 text-center ${isBest(land.land_id, 'trust_score') ? 'bg-green-50' : ''}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'trust_score') ? 'text-green-600' : ''}`}>
+                              {land.trust_score || 0}%
+                            </div>
+                            <div className="text-xs text-muted-foreground">{land.trust_label || 'Non évalué'}</div>
+                            {isBest(land.land_id, 'trust_score') && <Trophy className="w-4 h-4 text-green-600 mx-auto mt-1" weight="fill" />}
+                          </td>
+                        ))}
+                      </tr>
+                      
+                      <tr className="border-t border-border bg-secondary/30">
+                        <td className="p-4 font-medium">Score Sécurité</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className={`p-4 text-center ${isBest(land.land_id, 'risk_score') ? 'bg-blue-50' : ''}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'risk_score') ? 'text-blue-600' : ''}`}>
+                              {land.risk_score || 0}/100
+                            </div>
+                            <div className="text-xs text-muted-foreground">{land.risk_label || 'Non évalué'}</div>
+                            {isBest(land.land_id, 'risk_score') && <ShieldCheck className="w-4 h-4 text-blue-600 mx-auto mt-1" weight="fill" />}
+                          </td>
+                        ))}
+                      </tr>
+                      
+                      <tr className="border-t border-border">
+                        <td className="p-4 font-medium">Infrastructure</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className={`p-4 text-center ${isBest(land.land_id, 'infrastructure_score') ? 'bg-purple-50' : ''}`}>
+                            <div className={`text-2xl font-black ${isBest(land.land_id, 'infrastructure_score') ? 'text-purple-600' : ''}`}>
+                              {land.infrastructure_grade || '?'}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{land.infrastructure_label || 'Non évalué'}</div>
+                            {isBest(land.land_id, 'infrastructure_score') && <Buildings className="w-4 h-4 text-purple-600 mx-auto mt-1" weight="fill" />}
+                          </td>
+                        ))}
+                      </tr>
+                      
+                      <tr className="border-t border-border bg-secondary/30">
+                        <td className="p-4 font-medium">Potentiel Investissement</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className={`p-4 text-center ${isBest(land.land_id, 'investment_score') ? 'bg-yellow-50' : ''}`}>
+                            <div className={`text-lg font-bold ${isBest(land.land_id, 'investment_score') ? 'text-yellow-600' : ''}`}>
+                              {land.investment_score || 0}/100
+                            </div>
+                            <div className="text-xs text-muted-foreground">{land.investment_label || 'Non évalué'}</div>
+                            {isBest(land.land_id, 'investment_score') && <ChartLineUp className="w-4 h-4 text-yellow-600 mx-auto mt-1" weight="fill" />}
+                          </td>
+                        ))}
+                      </tr>
+                      
+                      <tr className="border-t border-border">
+                        <td className="p-4 font-medium">Évaluation Prix</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className="p-4 text-center">
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                              land.price_assessment === 'good_deal' || land.price_assessment === 'underpriced'
+                                ? 'bg-green-100 text-green-700'
+                                : land.price_assessment === 'fair'
+                                ? 'bg-blue-100 text-blue-700'
+                                : land.price_assessment === 'slightly_high'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : land.price_assessment === 'overpriced'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {land.price_assessment === 'good_deal' && <><TrendDown className="w-3 h-3" /> Bonne affaire</>}
+                              {land.price_assessment === 'underpriced' && <><TrendDown className="w-3 h-3" /> Sous-évalué</>}
+                              {land.price_assessment === 'fair' && <><Minus className="w-3 h-3" /> Prix juste</>}
+                              {land.price_assessment === 'slightly_high' && <><TrendUp className="w-3 h-3" /> Légèrement élevé</>}
+                              {land.price_assessment === 'overpriced' && <><TrendUp className="w-3 h-3" /> Au-dessus du marché</>}
+                              {(!land.price_assessment || land.price_assessment === 'unknown') && <><Info className="w-3 h-3" /> Non évalué</>}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                      
+                      <tr className="border-t border-border bg-secondary/30">
+                        <td className="p-4 font-medium">Vérifications Communautaires</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Users className="w-4 h-4 text-muted-foreground" />
+                              <span className="font-bold">{land.community_verifications || 0}</span>
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                      
+                      <tr className="border-t border-border">
+                        <td className="p-4 font-medium">Documents</td>
+                        {comparison.lands.map(land => (
+                          <td key={land.land_id} className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Files className="w-4 h-4 text-muted-foreground" />
+                              <span className="font-bold">{land.documents_count || 0}</span>
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                      
                       <tr className="border-t border-border bg-secondary/30">
                         <td className="p-4 font-medium">Actions</td>
                         {comparison.lands.map(land => (
